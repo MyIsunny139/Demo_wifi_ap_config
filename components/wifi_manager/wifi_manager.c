@@ -182,13 +182,24 @@ esp_err_t wifi_manager_ap(void)
 static void wifi_scan_task(void* param)
 {
     p_wifi_scan_cb f = (p_wifi_scan_cb)param;
+    uint16_t ap_count = 0;
+    uint16_t ap_num = 20;
+    wifi_ap_record_t* ap_list = (wifi_ap_record_t*) malloc(sizeof(wifi_ap_record_t)*ap_num);
     esp_wifi_scan_start(NULL, true); //阻塞式扫描
-    
+    esp_wifi_scan_get_ap_num(&ap_count);
+    esp_wifi_scan_get_ap_records(&ap_num, ap_list); //获取扫描到的AP数量
+    ESP_LOGI(TAG, "Total APs scanned = %d,actual ap number :%d", ap_count, ap_num);
+    if(f)
+    {
+        f(ap_num, ap_list);
+    }
+    free(ap_list);
+    vTaskDelete(NULL);
 }
 
 esp_err_t wifi_manager_scan(p_wifi_scan_cb f)
 {
     esp_wifi_clear_ap_list();
-    xTaskCreatePinnedToCore(wifi_scan_task, "wifi_scan_task", 8192, f, 5, NULL, 1);
+    return xTaskCreatePinnedToCore(wifi_scan_task, "wifi_scan_task", 8192, f, 5, NULL, 1);
 
 }
