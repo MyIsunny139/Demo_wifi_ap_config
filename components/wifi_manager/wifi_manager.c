@@ -101,7 +101,9 @@ void wifi_manager_init(p_wifi_state_cb f)
                                                         NULL,
                                                         &instance_got_ip));
 
-    wifi_callback = f;
+    wifi_callback = f; 
+    scan_semaphore = xSemaphoreCreateBinary(); //创建二进制信号量
+    xSemaphoreGive(scan_semaphore); //初始化时释放信号量
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
     ESP_ERROR_CHECK(esp_wifi_start() );
 
@@ -194,12 +196,17 @@ static void wifi_scan_task(void* param)
         f(ap_num, ap_list);
     }
     free(ap_list);
+    xSemaphoreGive(scan_semaphore); //释放信号量
     vTaskDelete(NULL);
 }
 
 esp_err_t wifi_manager_scan(p_wifi_scan_cb f)
 {
-    esp_wifi_clear_ap_list();
-    return xTaskCreatePinnedToCore(wifi_scan_task, "wifi_scan_task", 8192, f, 5, NULL, 1);
-
+    if(pdTRUE == xSemaphoreTake(scan_semaphore, 0)) //尝试获取信号量
+    {
+        esp_wifi_clear_ap_list();
+        return xTaskCreatePinnedToCore(wifi_scan_task, "wifi_scan_task", 8192, f, 5, NULL, 1);
+    }
+   
+    return ESP_OK;
 }

@@ -10,7 +10,8 @@
 #include "lwip/ip4_addr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
-
+#include "freertos/task.h"
+#include "freertos/semphr.h"
 
 
 #define WIFI_SSID      "MY_AP"
@@ -18,6 +19,8 @@
 
 #define WIFI_AP_SSID      "ESP32_AP"
 #define WIFI_AP_PASSWORD  "12345678"
+
+static SemaphoreHandle_t scan_semaphore = NULL;
 
 typedef enum {
     WIFI_STATE_DISCONNECTED,

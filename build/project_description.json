@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "Demo_ap_config",
-    "project_version":    "9666da7-dirty",
+    "project_version":    "e42edfe-dirty",
     "project_path":       "E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config",
     "idf_path":           "E:/soft/Espressif/frameworks/esp-idf-v5.4.2",
     "build_dir":          "E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build",
