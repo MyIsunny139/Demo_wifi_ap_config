@@ -849,3 +849,10 @@ E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/wifi_manage
 E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/wifi_manager/CMakeFiles/install.dir
 E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/wifi_manager/CMakeFiles/install/local.dir
 E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/wifi_manager/CMakeFiles/install/strip.dir
+E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/ws_server/CMakeFiles/__idf_ws_server.dir
+E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/ws_server/CMakeFiles/edit_cache.dir
+E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/ws_server/CMakeFiles/rebuild_cache.dir
+E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/ws_server/CMakeFiles/list_install_components.dir
+E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/ws_server/CMakeFiles/install.dir
+E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/ws_server/CMakeFiles/install/local.dir
+E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/ws_server/CMakeFiles/install/strip.dir

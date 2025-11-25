@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "esp-idf/efuse",
+		"source" : "E:/soft/Espressif/frameworks/esp-idf-v5.4.2/components/efuse"
+	}
+}

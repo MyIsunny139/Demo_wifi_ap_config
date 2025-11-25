@@ -13351,6 +13351,7 @@ LOAD esp-idf/usb/libusb.a
 LOAD esp-idf/wifi_provisioning/libwifi_provisioning.a
 LOAD esp-idf/main/libmain.a
 LOAD esp-idf/wifi_manager/libwifi_manager.a
+LOAD esp-idf/ws_server/libws_server.a
 LOAD esp-idf/app_trace/libapp_trace.a
 LOAD esp-idf/app_trace/libapp_trace.a
 LOAD esp-idf/cmock/libcmock.a
