@@ -6,6 +6,9 @@
         "ip4_addr.h": "c",
         "ws_server.h": "c",
         "event_groups.h": "c",
-        "task.h": "c"
+        "task.h": "c",
+        "ap_wifi.h": "c",
+        "stdio.h": "c",
+        "main.h": "c"
     }
 }

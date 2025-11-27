@@ -47,9 +47,10 @@ esp_err_t handle_ws_request(httpd_req_t *r)
             {
                 ws_receive_callback(ws_pkt.payload, ws_pkt.len);
             }
+            free(data_buf);
         }
     }
-    free(data_buf);
+    
     return ESP_OK;
 }
 

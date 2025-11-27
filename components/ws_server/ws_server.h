@@ -1,19 +1,7 @@
 #ifndef WS_SERVER_H
 #define WS_SERVER_H
 
-#include "esp_err.h"
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include "esp_log.h"
-#include "string.h"
-#include "esp_netif.h"
-#include "esp_http_server.h"
-#include "lwip/ip4_addr.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/event_groups.h"
-#include "freertos/task.h"
-#include "freertos/semphr.h"
-#include "string.h"
+#include "main.h"
 
 typedef void (*ws_receive_cb)(uint8_t *data, size_t len);
 

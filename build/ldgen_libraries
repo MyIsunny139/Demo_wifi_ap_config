@@ -84,5 +84,6 @@ E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/touch_eleme
 E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/usb/libusb.a
 E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/wifi_provisioning/libwifi_provisioning.a
 E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/main/libmain.a
+E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/ap_wifi/libap_wifi.a
 E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/wifi_manager/libwifi_manager.a
 E:/soft/ESP-project/esp32-demo-Assembly/Demo_ap_config/build/esp-idf/ws_server/libws_server.a
