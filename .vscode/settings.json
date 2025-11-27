@@ -9,6 +9,11 @@
         "task.h": "c",
         "ap_wifi.h": "c",
         "stdio.h": "c",
-        "main.h": "c"
-    }
+        "main.h": "c",
+        "esp_event.h": "c",
+        "esp_wifi.h": "c",
+        "esp_http_server.h": "c"
+    },
+    "idf.portWin": "COM6",
+    "idf.flashType": "UART"
 }

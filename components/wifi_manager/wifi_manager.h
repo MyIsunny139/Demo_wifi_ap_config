@@ -1,33 +1,49 @@
-#ifndef WIFI_MANAGER_H
-#define WIFI_MANAGER_H
+#ifndef _WIFI_MANAGER_H_
+#define _WIFI_MANAGER_H_
+#include "esp_err.h"
+#include "esp_wifi.h"
 
-#include "main.h"
-
-
-#define WIFI_SSID      "MY_AP"
-#define WIFI_PASSWORD  "my666666"
-
-#define WIFI_AP_SSID      "ESP32_AP"
-#define WIFI_AP_PASSWORD  "12345678"
-
-static SemaphoreHandle_t scan_semaphore = NULL;
-
-typedef enum {
-    WIFI_STATE_DISCONNECTED,
-    WIFI_STATE_CONNECTING,
+typedef enum
+{
     WIFI_STATE_CONNECTED,
-    WIFI_STATE_CONNECTION_FAILED
-} wifi_state_t;
+    WIFI_STATE_DISCONNECTED,
+}WIFI_STATE;
 
-typedef void(*p_wifi_state_cb)(wifi_state_t state);
-typedef void(*p_wifi_scan_cb)(uint16_t ap_num, wifi_ap_record_t* ap_records);
+//扫描完成回调函数
+typedef void(*p_wifi_scan_callback)(int numbers,wifi_ap_record_t *ap_records);
 
-void wifi_manager_init(p_wifi_state_cb f);
+//wifi状态变化回调函数
+typedef void(*p_wifi_state_callback)(WIFI_STATE state);
 
-void wifi_manager_connect(const char* ssid , const char* password);
+/** 初始化wifi，默认进入STA模式
+ * @param f wifi状态变化回调函数
+ * @return 无 
+*/
+void wifi_manager_init(p_wifi_state_callback f);
 
+/** 进入ap+sta模式
+ * @param 无
+ * @return 成功/失败
+*/
 esp_err_t wifi_manager_ap(void);
 
-esp_err_t wifi_manager_scan(p_wifi_scan_cb f);
+/** 启动扫描
+ * @param 无
+ * @return 成功/失败
+*/
+esp_err_t wifi_manager_scan(p_wifi_scan_callback f);
+
+/** 连接wifi
+ * @param ssid
+ * @param password
+ * @return 成功/失败
+*/
+esp_err_t wifi_manager_connect(const char* ssid,const char* password);
+
+/** 是否已经连接了路由器
+ * @param 无
+ * @return 是/否
+*/
+bool wifi_manager_is_connect(void);
 
 #endif
