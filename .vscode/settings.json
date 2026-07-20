@@ -1,19 +1,25 @@
 {
-    "idf.pythonInstallPath": "E:\\soft\\Espressif\\tools\\idf-python\\3.11.2\\python.exe",
-    "files.associations": {
-        "wifi_manager.h": "c",
-        "esp_log.h": "c",
-        "ip4_addr.h": "c",
-        "ws_server.h": "c",
-        "event_groups.h": "c",
-        "task.h": "c",
-        "ap_wifi.h": "c",
-        "stdio.h": "c",
-        "main.h": "c",
-        "esp_event.h": "c",
-        "esp_wifi.h": "c",
-        "esp_http_server.h": "c"
-    },
-    "idf.portWin": "COM6",
-    "idf.flashType": "UART"
+  "idf.buildPath": "${workspaceFolder}/build_codex",
+  "idf.buildPathWin": "${workspaceFolder}\\build_codex",
+  "idf.customExtraVars": {
+    "IDF_PATH": "D:\\soft\\esp32\\esp\\v5.4.2\\esp-idf",
+    "IDF_TOOLS_PATH": "D:\\soft\\esp32\\.espressif"
+  },
+  "files.associations": {
+    "wifi_manager.h": "c",
+    "esp_log.h": "c",
+    "ip4_addr.h": "c",
+    "ws_server.h": "c",
+    "event_groups.h": "c",
+    "task.h": "c",
+    "ap_wifi.h": "c",
+    "stdio.h": "c",
+    "main.h": "c",
+    "esp_event.h": "c",
+    "esp_wifi.h": "c",
+    "esp_http_server.h": "c"
+  },
+  "idf.portWin": "COM3",
+  "idf.flashType": "UART",
+  "idf.currentSetup": "D:\\soft\\esp32\\esp\\v5.4.2\\esp-idf"
 }

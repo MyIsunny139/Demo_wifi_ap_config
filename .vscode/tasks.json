@@ -1,0 +1,30 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "ESP-IDF: Build video-ai",
+            "type": "process",
+            "command": "D:\\soft\\esp32\\.espressif\\python_env\\idf5.4_py3.11_env\\Scripts\\python.exe",
+            "args": [
+                "D:\\soft\\esp32\\esp\\v5.4.2\\esp-idf\\tools\\idf.py",
+                "-B",
+                "${workspaceFolder}\\build_codex",
+                "build"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "IDF_PATH": "D:\\soft\\esp32\\esp\\v5.4.2\\esp-idf",
+                    "IDF_TOOLS_PATH": "D:\\soft\\esp32\\.espressif",
+                    "IDF_PYTHON_ENV_PATH": "D:\\soft\\esp32\\.espressif\\python_env\\idf5.4_py3.11_env",
+                    "PATH": "D:\\soft\\esp32\\.espressif\\tools\\xtensa-esp-elf\\esp-14.2.0_20241119\\xtensa-esp-elf\\bin;${env:PATH}"
+                }
+            },
+            "problemMatcher": "$espIdf",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}
