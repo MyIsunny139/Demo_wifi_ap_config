@@ -3,3 +3,4 @@ __pycache__/
 .venv/
 python_client/*.pt
 runs/
+.worktrees/
