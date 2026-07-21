@@ -1,83 +1,83 @@
-# Browser Dashboard Python Service Design
+# 浏览器仪表盘 Python 服务设计
 
-## Goal
+## 目标
 
-Build a single-page browser dashboard for the video-ai project. The browser shows live video, connection status, real-time warning state, threshold controls, and action buttons for start, stop, screenshot, and save. The browser does not talk to the ESP32 directly. A local Python service owns the ESP32 connection, YOLO inference, warning logic, and frame capture.
+为 video-ai 工程增加一个单页浏览器仪表盘。浏览器页面负责显示实时视频、连接状态、实时预警信息、阈值控制，以及启动、停止、截图、保存等操作按钮。浏览器不直接连接 ESP32，所有 ESP32 视频接入、YOLO 推理、预警逻辑和图像保存都由本地 Python 服务负责。
 
-## Architecture
+## 架构
 
-The Python service runs on the PC and exposes one local web app. It keeps three live flows:
+Python 服务运行在电脑端，并提供一个本地 Web 应用。服务内部维护三条实时链路：
 
-- ESP32 video ingest: connect to `ws://<device-ip>:81/video`, receive JPEG frames, keep the newest frame only.
-- Analysis pipeline: decode JPEG, run YOLO person detection, compute risk level, and keep the latest annotated frame plus status snapshot.
-- Browser push channel: serve the page and push state updates, warning messages, and annotated frames to the browser.
+- ESP32 视频接入：连接 `ws://<device-ip>:81/video`，接收 JPEG 帧，并只保留最新一帧。
+- 分析流水线：解码 JPEG，运行 YOLO 人员检测，计算风险等级，并保存最新的标注图像和状态快照。
+- 浏览器推送通道：提供页面资源，并通过本地 WebSocket 向浏览器推送状态、预警信息和标注后的视频帧。
 
-Recommended stack:
+推荐技术栈：
 
-- `FastAPI` for the local HTTP and WebSocket server.
-- Existing `websockets`, `opencv-python`, and `ultralytics` for ingest and analysis.
-- Static HTML, CSS, and vanilla JavaScript for the browser UI so the page stays simple and has no extra build step.
+- 使用 `FastAPI` 提供本地 HTTP 服务和 WebSocket 服务。
+- 继续使用现有的 `websockets`、`opencv-python`、`ultralytics` 完成视频接入和人员检测。
+- 前端使用静态 HTML、CSS 和原生 JavaScript，避免引入额外前端构建流程。
 
-## Page Layout
+## 页面布局
 
-The page is a single dark dashboard with compact, bordered panels and stable sizing.
+页面采用单页深色仪表盘风格，布局紧凑，面板边界清晰，尺寸稳定。
 
-- Top bar: connection state, current ESP32 address, current processing state.
-- Main video panel: live annotated frame, with a clear warning banner overlaid inside the panel.
-- Right-side control panel: threshold inputs, start button, stop button, screenshot button, save button.
-- Bottom status strip: current people count, risk level, receive FPS, inference FPS, last update time, and current warning text.
+- 顶部状态栏：显示连接状态、当前 ESP32 地址、当前处理状态。
+- 主视频区域：显示实时标注后的视频画面，并在画面区域内显示醒目的预警横幅。
+- 右侧控制面板：包含阈值输入、启动按钮、停止按钮、截图按钮、保存按钮。
+- 底部状态栏：显示当前人数、风险等级、接收帧率、推理帧率、最后更新时间和当前预警文本。
 
-The visual style should stay data-dense and restrained: dark neutral background, status colors only for state, no decorative gradients or floating orbs, and no oversized hero treatment.
+视觉风格保持偏工程化和数据密集：深色中性背景，只用状态颜色表达风险，不使用装饰性渐变、浮动光斑或营销页式大标题。
 
-## Interaction Model
+## 交互模型
 
-- `Start` connects the Python service to the ESP32 stream and begins analysis if not already running.
-- `Stop` closes the ESP32 session, stops analysis, and leaves the browser page open.
-- `Threshold` inputs change the active people-count boundaries without restarting the page.
-- `Screenshot` saves the latest annotated frame to disk and exposes the saved file path or download link.
-- `Save` persists the current frame with metadata such as timestamp, people count, and risk level.
+- `启动`：让 Python 服务连接 ESP32 视频流，并开始分析。
+- `停止`：关闭 ESP32 会话，停止分析，但浏览器页面保持打开。
+- `阈值`：修改人数风险边界，页面无需刷新。
+- `截图`：将最新标注图像保存到本地，并在界面上显示保存路径或下载入口。
+- `保存`：保存当前帧和元数据，元数据包括时间、人数和风险等级。
 
-The browser updates immediately when the latest analyzed frame or warning state changes. If no valid frame is available, the video panel shows a loading state instead of a blank area.
+当最新分析帧或预警状态变化时，浏览器立即更新。如果当前没有有效帧，视频区域显示加载状态，而不是空白画面。
 
-## Backend Responsibilities
+## 后端职责
 
-The Python service owns all state and side effects:
+Python 服务负责所有状态和副作用：
 
-- Maintain one ESP32 client connection and reconnect when needed.
-- Keep a one-frame queue so stale frames are dropped when inference is slower than capture.
-- Run YOLO in a worker thread or background task.
-- Compute warning state from the detected people count and current thresholds.
-- Save screenshots and annotated frames on request.
-- Broadcast state snapshots to the browser over a local WebSocket.
+- 维护唯一的 ESP32 客户端连接，并在需要时自动重连。
+- 使用单帧队列，推理速度低于接收速度时丢弃旧帧。
+- 在后台任务或工作线程中运行 YOLO。
+- 根据检测人数和当前阈值计算风险状态。
+- 根据浏览器请求保存截图和标注图像。
+- 通过本地 WebSocket 向浏览器广播统一的状态快照。
 
-The browser only renders UI and sends control commands to the Python service.
+浏览器只负责渲染界面，并向 Python 服务发送控制命令。
 
-## Failure Handling
+## 故障处理
 
-- If the ESP32 is offline, the dashboard stays open and shows disconnected state plus reconnect progress.
-- If a frame cannot be decoded, it is skipped and the latest good state remains visible.
-- If YOLO is still loading, the page shows a loading indicator and disables analysis-dependent controls.
-- If screenshot or save fails, the UI shows a visible error message and keeps the stream alive.
-- If the browser disconnects, the backend keeps the ESP32 session and analysis running unless the user explicitly stops it.
+- ESP32 离线时，仪表盘页面保持打开，显示断开状态和重连进度。
+- 单帧解码失败时跳过该帧，界面继续显示最新的有效状态。
+- YOLO 模型加载期间，页面显示加载状态，并禁用依赖分析结果的控件。
+- 截图或保存失败时，界面显示明确错误信息，视频流不中断。
+- 浏览器断开时，除非用户明确点击停止，否则后端继续保持 ESP32 会话和分析任务。
 
-## Testing
+## 测试
 
-Add focused tests around the Python state model and dashboard actions:
+新增围绕 Python 状态模型和仪表盘操作的测试：
 
-- threshold parsing and validation
-- start/stop state transitions
-- frame replacement behavior
-- warning level computation
-- screenshot/save command handling
-- reconnect behavior after ESP32 disconnect
+- 阈值解析和校验。
+- 启动、停止状态切换。
+- 最新帧替换行为。
+- 风险等级计算。
+- 截图、保存命令处理。
+- ESP32 断开后的重连行为。
 
-Keep the UI testable by separating state updates from rendering logic. The browser shell should only consume a normalized state object and a frame source.
+为便于测试，状态更新逻辑应与界面渲染逻辑分离。浏览器页面只消费标准化状态对象和帧数据源。
 
-## Acceptance Criteria
+## 验收标准
 
-- The browser opens a single dashboard page with live video and status.
-- The page provides start, stop, threshold, screenshot, and save controls.
-- Python remains the only component that connects to the ESP32.
-- Real-time warning text updates as the detected people count changes.
-- Screenshot and save actions work on the latest annotated frame.
-- Existing ESP32 streaming behavior remains unchanged.
+- 浏览器能打开单页仪表盘，并显示实时视频和状态。
+- 页面提供启动、停止、阈值、截图、保存控制。
+- 只有 Python 服务连接 ESP32，浏览器不直接连接 ESP32。
+- 检测人数变化时，实时预警文本同步更新。
+- 截图和保存操作能作用于最新标注帧。
+- 现有 ESP32 视频流行为保持不变。
