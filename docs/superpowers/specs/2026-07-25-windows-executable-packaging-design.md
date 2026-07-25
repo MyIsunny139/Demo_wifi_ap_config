@@ -1,67 +1,75 @@
-# Windows Executable Packaging Design
+# Windows 可执行程序打包设计
 
-## Goal
+## 目标
 
-Deliver the Python dashboard as a portable Windows x64 folder. The customer launches the complete application by double-clicking `video-ai.exe` and does not need Python installed.
+将 Python 仪表盘制作成 Windows x64 绿色目录版。客户拿到文件夹后，直接双击 `video-ai.exe` 即可启动，无需安装 Python。
 
-## Distribution Format
+## 交付形式
 
-- Build with PyInstaller in one-directory mode.
-- Output to `dist/video-ai/`.
-- Use windowed mode so no command prompt is shown.
-- Bundle the dashboard static assets and `yolo11n.pt`.
-- Keep PyTorch, Ultralytics, OpenCV, FastAPI, Uvicorn, and their runtime dependencies inside the distribution directory.
-- Do not bundle development-only files such as tests, build caches, captures, or the source virtual environment.
+- 使用 PyInstaller 的单目录模式打包。
+- 输出目录为 `dist/video-ai/`。
+- 使用无控制台模式，启动时不显示命令行窗口。
+- 将前端静态资源和 `yolo11n.pt` 一起打包。
+- 交付目录包含 PyTorch、Ultralytics、OpenCV、FastAPI、Uvicorn 及其运行依赖。
+- 测试代码、构建缓存、截图和开发用虚拟环境不进入交付目录。
 
-One-directory mode is preferred over one-file mode because the machine-learning runtime is large. It avoids per-launch extraction, reduces startup time, and is less likely to trigger antivirus heuristics while still providing a single executable for the customer to double-click.
+本项目不采用单文件模式。机器学习运行库体积较大，单文件程序每次启动都要先解压，启动时间更长，也更容易触发杀毒软件的启发式检查。单目录模式仍然只需要客户双击一个 EXE，运行更稳定。
 
-## Runtime Behavior
+## 启动参数
 
-The packaged launcher supplies delivery defaults:
+打包入口使用以下默认值：
 
-- ESP32 host: `192.168.1.3`
-- ESP32 WebSocket port: `81`
-- Inference device: `cpu`
-- Model: bundled `yolo11n.pt`
-- Dashboard bind address: `127.0.0.1`
-- Dashboard port: `8000`
+- ESP32 地址：`192.168.1.3`
+- ESP32 WebSocket 端口：`81`
+- 推理设备：`cpu`
+- 模型：打包内置的 `yolo11n.pt`
+- 仪表盘监听地址：`127.0.0.1`
+- 仪表盘端口：`8000`
 
-The existing dashboard opens the default browser after Uvicorn successfully binds. Additional command-line arguments remain available for support and diagnostics, including `--no-browser`.
+Uvicorn 成功监听端口后，程序自动打开默认浏览器。命令行参数仍然保留，售后调试时可以使用 `--no-browser` 等选项。
 
-## Runtime Paths
+## 文件路径
 
-Read-only bundled resources are resolved from the PyInstaller bundle root. Writable files are always placed beside the executable:
+模型和前端文件属于只读资源，从 PyInstaller 的资源目录读取。日志和截图写在 EXE 所在目录：
 
-- Logs: `logs/video-ai.log`
-- Captures: `captures/`
+- 日志：`logs/video-ai.log`
+- 截图：`captures/`
 
-This separation prevents writes into PyInstaller's internal resource directory and keeps customer data visible and portable.
+这样不会向 PyInstaller 内部资源目录写文件，客户也可以直接找到运行日志和截图。
 
-## Logging And Errors
+## 日志和异常
 
-Because the executable has no console, the launcher creates `logs/` before importing the application and redirects standard output and standard error to `logs/video-ai.log`. Python logging and uncaught exceptions are also written there.
+程序没有控制台窗口，因此打包入口必须先创建 `logs/`，再导入应用模块。标准输出、标准错误、Python 日志和未捕获异常统一写入 `logs/video-ai.log`。
 
-If browser launch, ESP32 connection, or inference fails, the local dashboard process remains available when possible and the failure is recorded in the log. Startup failures that prevent the server from running are recorded before the process exits.
+浏览器打开失败、ESP32 断线或推理异常时，本地仪表盘应尽量继续运行，并把错误写入日志。如果启动阶段发生错误，无法运行服务，也要在进程退出前留下日志。
 
-## Build Structure
+## 工程文件
 
-- `python_client/packaged_launcher.py`: packaged entry point and runtime path/log setup.
-- `video-ai.spec`: reproducible PyInstaller configuration, bundled resources, hidden imports, and executable metadata.
-- `tools/build_windows_exe.ps1`: installs/checks the build dependency, removes only packaging outputs, invokes PyInstaller, and reports the output path.
-- `python_client/requirements-build.txt`: build-only PyInstaller dependency.
+- `python_client/packaged_launcher.py`：打包入口，负责默认参数、运行路径和日志初始化。
+- `video-ai.spec`：PyInstaller 配置，声明静态资源、模型、隐藏导入和 EXE 属性。
+- `tools/build_windows_exe.ps1`：可重复执行的 Windows 打包脚本，只清理打包输出，不碰其他工程文件。
+- `python_client/requirements-build.txt`：仅用于构建的 PyInstaller 依赖。
 
-The existing source-mode command remains unchanged.
+原有的源码启动命令保持不变。
 
-## Verification
+## 测试
 
-Automated tests cover bundle/resource path selection, delivery defaults, writable paths, argument forwarding, and log initialization. The normal Python test suite must continue to pass.
+自动化测试覆盖以下行为：
 
-After building, verification will:
+- 开发环境和打包环境的资源路径解析。
+- EXE 所在目录下的日志、截图路径。
+- ESP32 地址、CPU 推理和内置模型等默认参数。
+- 售后参数的透传。
+- 日志初始化。
 
-1. Confirm `dist/video-ai/video-ai.exe`, static assets, and model resources exist.
-2. Start the executable with `--no-browser` on a non-default test port.
-3. Request `/`, `/static/dashboard.css`, and `/api/state`.
-4. Start the dashboard processing flow to force model loading and check that failures are logged rather than hidden.
-5. Stop the executable and confirm `logs/video-ai.log` was created.
+原有 Python 测试必须继续通过。
 
-The ESP32 firmware is outside this packaging change and will not be rebuilt.
+## 打包后验证
+
+1. 检查 `dist/video-ai/video-ai.exe`、前端静态资源和模型是否存在。
+2. 使用 `--no-browser` 和非默认端口启动 EXE。
+3. 请求 `/`、`/static/dashboard.css` 和 `/api/state`。
+4. 启动仪表盘处理流程，确认模型能够加载；如果 ESP32 未连接，错误应写入日志。
+5. 停止 EXE，确认 `logs/video-ai.log` 已生成。
+
+本次只处理 Windows 程序打包，不重新编译 ESP32 固件。
