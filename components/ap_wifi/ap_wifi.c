@@ -7,6 +7,7 @@
 #include "freertos/task.h"
 #include "ws_server.h"
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -14,17 +15,90 @@
 #define INDEX_HTML_PATH "/spiffs/apcfg.html"
 #define APCFG_BIT (BIT0)
 #define ENTER_APCFG_BIT (BIT1)
+#define TRY_NEXT_CREDENTIAL_BIT (BIT2)
 
 static char *index_html = NULL;
 static EventGroupHandle_t apcfg_event = NULL;
-static char current_ssid[33];
-static char current_password[64];
+static wifi_credentials_t saved_credentials[WIFI_CREDENTIAL_CAPACITY];
+static size_t saved_credential_count;
+static size_t active_credential_index = WIFI_CREDENTIAL_CAPACITY;
+static size_t next_credential_index;
+static size_t pending_credential_index = WIFI_CREDENTIAL_CAPACITY;
+static p_wifi_state_callback app_wifi_state_cb;
 
 static void ws_receive_handle(uint8_t *payload, int len);
+static void wifi_connect_failed_handle(void);
+
+static esp_err_t load_saved_credentials(void)
+{
+    active_credential_index = WIFI_CREDENTIAL_CAPACITY;
+    next_credential_index = 0;
+    pending_credential_index = WIFI_CREDENTIAL_CAPACITY;
+    return wifi_manager_load_credentials_list(
+        saved_credentials, WIFI_CREDENTIAL_CAPACITY, &saved_credential_count);
+}
+
+static void connect_saved_credential(size_t index)
+{
+    if (index >= saved_credential_count) {
+        xEventGroupSetBits(apcfg_event, ENTER_APCFG_BIT);
+        return;
+    }
+
+    active_credential_index = index;
+    ESP_LOGI(TAG, "Trying saved WiFi %u/%u: %s", (unsigned)(index + 1),
+             (unsigned)saved_credential_count, saved_credentials[index].ssid);
+    esp_err_t err = wifi_manager_connect(saved_credentials[index].ssid,
+                                         saved_credentials[index].password);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Could not start WiFi connection: %s", esp_err_to_name(err));
+        wifi_connect_failed_handle();
+    }
+}
+
+static void start_saved_connection_cycle(void)
+{
+    esp_err_t err = load_saved_credentials();
+    if (err != ESP_OK || saved_credential_count == 0) {
+        ESP_LOGW(TAG, "No saved WiFi credentials, enter AP config mode");
+        xEventGroupSetBits(apcfg_event, ENTER_APCFG_BIT);
+        return;
+    }
+
+    active_credential_index = 0;
+    next_credential_index = 1;
+    connect_saved_credential(0);
+}
+
+static void wifi_state_handle(WIFI_STATE state)
+{
+    if (state == WIFI_STATE_CONNECTED) {
+        next_credential_index = 0;
+    }
+    if (app_wifi_state_cb) {
+        app_wifi_state_cb(state);
+    }
+}
 
 static void wifi_connect_failed_handle(void)
 {
-    ESP_LOGW(TAG, "WiFi connect failed, enter AP config mode");
+    while (next_credential_index < saved_credential_count &&
+           next_credential_index == active_credential_index) {
+        next_credential_index++;
+    }
+
+    if (next_credential_index < saved_credential_count) {
+        pending_credential_index = next_credential_index++;
+        ESP_LOGW(TAG, "Saved WiFi failed; scheduling credential %u/%u",
+                 (unsigned)(pending_credential_index + 1),
+                 (unsigned)saved_credential_count);
+        if (apcfg_event) {
+            xEventGroupSetBits(apcfg_event, TRY_NEXT_CREDENTIAL_BIT);
+        }
+        return;
+    }
+
+    ESP_LOGW(TAG, "All saved WiFi credentials failed, enter AP config mode");
     if (apcfg_event) {
         xEventGroupSetBits(apcfg_event, ENTER_APCFG_BIT);
     }
@@ -141,11 +215,14 @@ static void ws_receive_handle(uint8_t *payload, int len)
     }
 
     if (cJSON_IsString(ssid_js) && cJSON_IsString(password_js)) {
-        snprintf(current_ssid, sizeof(current_ssid), "%s", ssid_js->valuestring);
-        snprintf(current_password, sizeof(current_password), "%s", password_js->valuestring);
-        wifi_manager_save_credentials(current_ssid, current_password);
-        ESP_LOGI(TAG, "Receive ssid:%s, now stop http server", current_ssid);
-        xEventGroupSetBits(apcfg_event, APCFG_BIT);
+        esp_err_t err = wifi_manager_save_credentials(ssid_js->valuestring,
+                                                      password_js->valuestring);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "Saved ssid:%s, now stop http server", ssid_js->valuestring);
+            xEventGroupSetBits(apcfg_event, APCFG_BIT);
+        } else {
+            ESP_LOGE(TAG, "Could not save WiFi credentials: %s", esp_err_to_name(err));
+        }
     }
 
     cJSON_Delete(root);
@@ -154,12 +231,16 @@ static void ws_receive_handle(uint8_t *payload, int len)
 static void ap_wifi_task(void *param)
 {
     while (1) {
-        EventBits_t ev = xEventGroupWaitBits(apcfg_event, APCFG_BIT | ENTER_APCFG_BIT, pdTRUE, pdFALSE, pdMS_TO_TICKS(10000));
+        EventBits_t ev = xEventGroupWaitBits(
+            apcfg_event,
+            APCFG_BIT | ENTER_APCFG_BIT | TRY_NEXT_CREDENTIAL_BIT,
+            pdTRUE, pdFALSE, portMAX_DELAY);
         if (ev & APCFG_BIT) {
             web_ws_stop();
-            wifi_manager_connect(current_ssid, current_password);
-        }
-        if (ev & ENTER_APCFG_BIT) {
+            start_saved_connection_cycle();
+        } else if (ev & TRY_NEXT_CREDENTIAL_BIT) {
+            connect_saved_credential(pending_credential_index);
+        } else if (ev & ENTER_APCFG_BIT) {
             start_ap_config_portal();
         }
     }
@@ -168,7 +249,8 @@ static void ap_wifi_task(void *param)
 void ap_wifi_init(p_wifi_state_callback f)
 {
     index_html = init_web_page_buffer();
-    wifi_manager_init(f);
+    app_wifi_state_cb = f;
+    wifi_manager_init(wifi_state_handle);
     wifi_manager_set_connect_failed_callback(wifi_connect_failed_handle);
     apcfg_event = xEventGroupCreate();
     if (!apcfg_event) {
@@ -180,7 +262,12 @@ void ap_wifi_init(p_wifi_state_callback f)
 
 void ap_wifi_set(const char *ssid, const char *password)
 {
-    wifi_manager_connect(ssid, password);
+    esp_err_t err = wifi_manager_save_credentials(ssid, password);
+    if (err == ESP_OK) {
+        start_saved_connection_cycle();
+    } else {
+        ESP_LOGE(TAG, "Could not save WiFi credentials: %s", esp_err_to_name(err));
+    }
 }
 
 void ap_wifi_apcfg(bool enable)
@@ -194,15 +281,5 @@ void ap_wifi_apcfg(bool enable)
 
 void ap_wifi_start(void)
 {
-    char ssid[33] = {0};
-    char password[65] = {0};
-
-    if (wifi_manager_load_credentials(ssid, sizeof(ssid), password, sizeof(password)) == ESP_OK) {
-        ESP_LOGI(TAG, "Found saved WiFi credentials, connect to ssid:%s", ssid);
-        wifi_manager_connect(ssid, password);
-        return;
-    }
-
-    ESP_LOGW(TAG, "No saved WiFi credentials, enter AP config mode");
-    ap_wifi_apcfg(true);
+    start_saved_connection_cycle();
 }

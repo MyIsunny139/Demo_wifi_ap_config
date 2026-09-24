@@ -69,6 +69,13 @@ static portMUX_TYPE g_psram_dma_lock = portMUX_INITIALIZER_UNLOCKED;
 #define CAM_LOG_SPAM_EVERY_FRAME 0   /* set to 1 to restore old behaviour */
 #endif
 
+/* Validate JPEG markers after a complete frame is assembled. Some OV2640
+ * modules assert VSYNC before the JPEG byte stream starts, so requiring the
+ * SOI marker in the first DMA block can discard otherwise valid frames. */
+#ifndef CAM_VERIFY_JPEG_SOI_EARLY
+#define CAM_VERIFY_JPEG_SOI_EARLY 0
+#endif
+
 /* Number of bytes copied to SRAM for SOI validation when capturing
  * directly to PSRAM. Tunable to probe more of the frame start if needed. */
 #ifndef CAM_SOI_PROBE_BYTES
@@ -130,8 +137,10 @@ static inline void cam_drop_psram_cache(void *addr, size_t len)
 #endif
 
 /* JPEG markers (byte-order independent). */
+#if CAM_VERIFY_JPEG_SOI_EARLY
 static const uint8_t JPEG_SOI_MARKER[] = {0xFF, 0xD8, 0xFF}; /* SOI = FF D8 FF */
 #define JPEG_SOI_MARKER_LEN (3)
+#endif
 static const uint8_t JPEG_EOI_BYTES[] = {0xFF, 0xD9};        /* EOI = FF D9 */
 #define JPEG_EOI_MARKER_LEN (2)
 
@@ -142,6 +151,7 @@ static inline size_t eoi_probe_window(size_t half, size_t frame_len)
     return w > frame_len ? frame_len : w;
 }
 
+#if CAM_VERIFY_JPEG_SOI_EARLY
 static int cam_verify_jpeg_soi(const uint8_t *inbuf, uint32_t length)
 {
     static uint16_t warn_soi_miss_cnt = 0;
@@ -162,6 +172,7 @@ static int cam_verify_jpeg_soi(const uint8_t *inbuf, uint32_t length)
                       "NO-SOI - JPEG start marker missing");
     return -1;
 }
+#endif
 
 static int cam_verify_jpeg_eoi(const uint8_t *inbuf, uint32_t length, bool search_forward)
 {
@@ -319,6 +330,7 @@ static void cam_task(void *arg)
                     }
 
                     //Check for JPEG SOI in the first buffer. stop if not found
+#if CAM_VERIFY_JPEG_SOI_EARLY
                     if (cam_obj->jpeg_mode && cnt == 0) {
                         if (cam_obj->psram_mode) {
                             /* dma_half_buffer_size already in BYTES (see ll_cam_memcpy()) */
@@ -363,6 +375,7 @@ static void cam_task(void *arg)
                             }
                         }
                     }
+#endif
 
                     cnt++;
 
@@ -768,6 +781,41 @@ skip_eoi_check:
 
             CAM_WARN_THROTTLE(warn_eoi_miss_cnt,
                               "NO-EOI - JPEG end marker missing");
+            if (warn_eoi_miss_cnt == 1 || warn_eoi_miss_cnt % 100 == 0) {
+                const size_t len = dma_buffer->len;
+                const uint8_t *buf = dma_buffer->buf;
+                const size_t tail = len >= 8 ? len - 8 : 0;
+                int soi_offset = -1;
+                for (size_t i = 0; i + 2 < len; ++i) {
+                    if (buf[i] == 0xff && buf[i + 1] == 0xd8 &&
+                        buf[i + 2] == 0xff) {
+                        soi_offset = (int)i;
+                        break;
+                    }
+                }
+                ESP_CAMERA_ETS_PRINTF(
+                    DRAM_STR("cam_hal: JPEG-DIAG len=%u limit=%u full=%u soi=%d "
+                             "head=%02x %02x %02x %02x %02x %02x %02x %02x "
+                             "tail=%02x %02x %02x %02x %02x %02x %02x %02x\r\n"),
+                    (unsigned)len, (unsigned)cam_obj->fb_size,
+                    (unsigned)(len >= cam_obj->fb_size), soi_offset,
+                    (unsigned)(len > 0 ? buf[0] : 0),
+                    (unsigned)(len > 1 ? buf[1] : 0),
+                    (unsigned)(len > 2 ? buf[2] : 0),
+                    (unsigned)(len > 3 ? buf[3] : 0),
+                    (unsigned)(len > 4 ? buf[4] : 0),
+                    (unsigned)(len > 5 ? buf[5] : 0),
+                    (unsigned)(len > 6 ? buf[6] : 0),
+                    (unsigned)(len > 7 ? buf[7] : 0),
+                    (unsigned)(len > tail ? buf[tail] : 0),
+                    (unsigned)(len > tail + 1 ? buf[tail + 1] : 0),
+                    (unsigned)(len > tail + 2 ? buf[tail + 2] : 0),
+                    (unsigned)(len > tail + 3 ? buf[tail + 3] : 0),
+                    (unsigned)(len > tail + 4 ? buf[tail + 4] : 0),
+                    (unsigned)(len > tail + 5 ? buf[tail + 5] : 0),
+                    (unsigned)(len > tail + 6 ? buf[tail + 6] : 0),
+                    (unsigned)(len > tail + 7 ? buf[tail + 7] : 0));
+            }
             cam_give(dma_buffer);
             continue; /* wait for another frame */
         } else if (cam_obj->psram_mode &&

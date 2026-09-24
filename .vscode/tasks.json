@@ -6,18 +6,19 @@
             "type": "process",
             "command": "D:\\soft\\esp32\\.espressif\\python_env\\idf5.4_py3.11_env\\Scripts\\python.exe",
             "args": [
-                "D:\\soft\\esp32\\esp\\v5.4.2\\esp-idf\\tools\\idf.py",
+                "D:\\esp-idf\\.espressif\\v5.4.3\\esp-idf\\tools\\idf.py",
                 "-B",
-                "${workspaceFolder}\\build_codex",
+                "${workspaceFolder}\\build_current",
                 "build"
             ],
             "options": {
                 "cwd": "${workspaceFolder}",
                 "env": {
-                    "IDF_PATH": "D:\\soft\\esp32\\esp\\v5.4.2\\esp-idf",
+                    "IDF_PATH": "D:\\esp-idf\\.espressif\\v5.4.3\\esp-idf",
                     "IDF_TOOLS_PATH": "D:\\soft\\esp32\\.espressif",
                     "IDF_PYTHON_ENV_PATH": "D:\\soft\\esp32\\.espressif\\python_env\\idf5.4_py3.11_env",
-                    "PATH": "D:\\soft\\esp32\\.espressif\\tools\\xtensa-esp-elf\\esp-14.2.0_20241119\\xtensa-esp-elf\\bin;${env:PATH}"
+                    "ESP_ROM_ELF_DIR": "D:\\soft\\esp32\\.espressif\\tools\\esp-rom-elfs\\20241011",
+                    "PATH": "D:\\soft\\esp32\\.espressif\\tools\\xtensa-esp-elf\\esp-14.2.0_20250730\\xtensa-esp-elf\\bin;D:\\soft\\esp32\\.espressif\\tools\\cmake\\3.30.2\\bin;D:\\soft\\esp32\\.espressif\\tools\\ninja\\1.12.1;D:\\soft\\esp32\\.espressif\\tools\\ccache\\4.11.2\\ccache-4.11.2-windows-x86_64;${env:PATH}"
                 }
             },
             "problemMatcher": "$espIdf",

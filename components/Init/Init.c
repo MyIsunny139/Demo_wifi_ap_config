@@ -12,13 +12,22 @@
 #include "nvs_flash.h"
 #include "status_led.h"
 #include "video_stream.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <inttypes.h>
 
 #define EXPECTED_CPU_HZ (240 * 1000 * 1000)
 #define EXPECTED_FLASH_SIZE (16 * 1024 * 1024)
 #define EXPECTED_PSRAM_SIZE (8 * 1024 * 1024)
+#define VIDEO_START_DELAY_MS 1500
 
 static const char *TAG = "app_init";
+static TaskHandle_t video_control_task_handle;
+
+typedef enum {
+    VIDEO_CTRL_STOP = 0,
+    VIDEO_CTRL_START = 1,
+} video_control_cmd_t;
 
 static esp_err_t validate_hardware_profile(void)
 {
@@ -74,18 +83,73 @@ static esp_err_t init_nvs(void)
     return err;
 }
 
+static esp_err_t ensure_video_stack_ready(void)
+{
+    esp_err_t err = camera_service_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Camera init retry failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = video_stream_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Video stack init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    return ESP_OK;
+}
+
+static void video_control_task(void *arg)
+{
+    (void)arg;
+    uint32_t cmd = VIDEO_CTRL_STOP;
+
+    while (true) {
+        if (xTaskNotifyWait(0, UINT32_MAX, &cmd, portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+
+        if (cmd == VIDEO_CTRL_START) {
+            vTaskDelay(pdMS_TO_TICKS(VIDEO_START_DELAY_MS));
+
+            uint32_t pending_cmd = VIDEO_CTRL_START;
+            if (xTaskNotifyWait(0, UINT32_MAX, &pending_cmd, 0) == pdTRUE &&
+                pending_cmd == VIDEO_CTRL_STOP) {
+                video_stream_stop();
+                status_led_clear();
+                continue;
+            }
+
+            esp_err_t init_err = ensure_video_stack_ready();
+            if (init_err != ESP_OK) {
+                ESP_LOGE(TAG, "Video stack not ready: %s", esp_err_to_name(init_err));
+                continue;
+            }
+
+            esp_err_t err = video_stream_start();
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Video service start failed: %s", esp_err_to_name(err));
+            }
+        } else {
+            video_stream_stop();
+            status_led_clear();
+        }
+    }
+}
+
 static void wifi_state_handle(WIFI_STATE state)
 {
     if (state == WIFI_STATE_CONNECTED) {
         ESP_LOGI(TAG, "Wi-Fi connected");
-        esp_err_t err = video_stream_start();
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Video service start failed: %s", esp_err_to_name(err));
+        if (video_control_task_handle) {
+            xTaskNotify(video_control_task_handle, VIDEO_CTRL_START, eSetValueWithOverwrite);
         }
     } else {
         ESP_LOGW(TAG, "Wi-Fi disconnected");
-        video_stream_stop();
-        status_led_clear();
+        if (video_control_task_handle) {
+            xTaskNotify(video_control_task_handle, VIDEO_CTRL_STOP, eSetValueWithOverwrite);
+        }
     }
 }
 
@@ -107,14 +171,10 @@ esp_err_t app_system_init(void)
         ESP_LOGE(TAG, "Status LED unavailable: %s", esp_err_to_name(err));
     }
 
-    err = camera_service_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Camera unavailable; Wi-Fi provisioning will remain active");
-    } else {
-        err = video_stream_init();
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Video service initialization failed: %s", esp_err_to_name(err));
-        }
+    if (xTaskCreatePinnedToCore(video_control_task, "video_ctrl", 4096, NULL, 4,
+                                &video_control_task_handle, 1) != pdPASS) {
+        ESP_LOGE(TAG, "Video control task create failed");
+        return ESP_ERR_NO_MEM;
     }
 
     ap_wifi_init(wifi_state_handle);

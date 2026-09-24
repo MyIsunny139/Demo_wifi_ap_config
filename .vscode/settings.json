@@ -1,9 +1,11 @@
 {
-  "idf.buildPath": "${workspaceFolder}/build_codex",
-  "idf.buildPathWin": "${workspaceFolder}\\build_codex",
+  "idf.buildPath": "${workspaceFolder}/build_current",
+  "idf.buildPathWin": "${workspaceFolder}\\build_current",
   "idf.customExtraVars": {
-    "IDF_PATH": "D:\\soft\\esp32\\esp\\v5.4.2\\esp-idf",
-    "IDF_TOOLS_PATH": "D:\\soft\\esp32\\.espressif"
+    "IDF_PATH": "D:\\esp-idf\\.espressif\\v5.4.3\\esp-idf",
+    "IDF_TOOLS_PATH": "D:\\soft\\esp32\\.espressif",
+    "IDF_PYTHON_ENV_PATH": "D:\\soft\\esp32\\.espressif\\python_env\\idf5.4_py3.11_env",
+    "ESP_ROM_ELF_DIR": "D:\\soft\\esp32\\.espressif\\tools\\esp-rom-elfs\\20241011"
   },
   "files.associations": {
     "wifi_manager.h": "c",
@@ -19,7 +21,13 @@
     "esp_wifi.h": "c",
     "esp_http_server.h": "c"
   },
-  "idf.portWin": "COM3",
+  "idf.portWin": "COM6",
   "idf.flashType": "UART",
-  "idf.currentSetup": "D:\\soft\\esp32\\esp\\v5.4.2\\esp-idf"
+  "idf.currentSetup": "D:\\esp-idf\\.espressif\\v5.4.3\\esp-idf",
+  "clangd.path": "C:\\Espressif\\tools\\esp-clang\\esp-18.1.2_20240912\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=${workspaceFolder}\\build_current"
+  ]
 }

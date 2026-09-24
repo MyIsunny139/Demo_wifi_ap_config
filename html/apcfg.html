@@ -265,15 +265,13 @@
         
         // 模拟配置网络
         function configureNetwork(ssid, password) {
-			const manualJson = '{"ssid":"' + ssid+ '","password":"' + password + '"}';
-			websocket.send(manualJson);
+			websocket.send(JSON.stringify({ssid, password}));
 			showStatus('开始配置网络！请留意设备信息...','success');
         }
         
         // 开始扫描
         function scanNetwork(msg) {
-			const manualJson = '{"scan":"' + msg+ '"}';
-			websocket.send(manualJson);
+			websocket.send(JSON.stringify({scan: msg}));
 			showStatus('开始扫描....','success');
         } 
 

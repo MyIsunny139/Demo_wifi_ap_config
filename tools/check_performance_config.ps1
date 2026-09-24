@@ -32,13 +32,14 @@ $required = @(
     "CONFIG_LWIP_TCP_RECVMBOX_SIZE=12",
     "CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y",
     "CONFIG_CAMERA_CORE1=y",
-    "CONFIG_CAMERA_PSRAM_DMA=y"
+    "# CONFIG_CAMERA_PSRAM_DMA is not set"
 )
 
 $forbidden = @(
     "CONFIG_ESPTOOLPY_FLASHFREQ_120M=y",
     "CONFIG_SPIRAM_SPEED_120M=y",
-    "CONFIG_IDF_EXPERIMENTAL_FEATURES=y"
+    "CONFIG_IDF_EXPERIMENTAL_FEATURES=y",
+    "CONFIG_CAMERA_PSRAM_DMA=y"
 )
 
 $missing = $required | Where-Object { $_ -notin $lines }

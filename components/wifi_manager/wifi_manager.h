@@ -5,6 +5,15 @@
 #include "esp_wifi.h"
 #include <stddef.h>
 
+#define WIFI_CREDENTIAL_CAPACITY 3
+#define WIFI_CREDENTIAL_SSID_MAX_LEN 32
+#define WIFI_CREDENTIAL_PASSWORD_MAX_LEN 63
+
+typedef struct {
+    char ssid[WIFI_CREDENTIAL_SSID_MAX_LEN + 1];
+    char password[WIFI_CREDENTIAL_PASSWORD_MAX_LEN + 1];
+} wifi_credentials_t;
+
 typedef enum
 {
     WIFI_STATE_CONNECTED,
@@ -21,6 +30,8 @@ esp_err_t wifi_manager_ap(void);
 esp_err_t wifi_manager_scan(p_wifi_scan_callback f);
 esp_err_t wifi_manager_connect(const char *ssid, const char *password);
 esp_err_t wifi_manager_save_credentials(const char *ssid, const char *password);
+esp_err_t wifi_manager_load_credentials_list(wifi_credentials_t *credentials,
+                                             size_t capacity, size_t *count);
 esp_err_t wifi_manager_load_credentials(char *ssid, size_t ssid_len, char *password, size_t password_len);
 bool wifi_manager_has_credentials(void);
 bool wifi_manager_is_connect(void);

@@ -21,7 +21,7 @@ void ap_wifi_set(const char* ssid,const char* password);
 */
 void ap_wifi_apcfg(bool enable);
 
-/** Connect saved WiFi credentials, or start AP config if none exist. */
+/** Try up to three saved WiFi credentials, or start AP config if all fail. */
 void ap_wifi_start(void);
 
 #endif

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>video-ai 实时监控</title>
+  <link rel="stylesheet" href="/static/dashboard.css?v=20260924-smoking1">
+</head>
+<body>
+  <main class="dashboard">
+    <header class="topbar">
+      <div class="identity">
+        <span class="mark" aria-hidden="true">VA</span>
+        <div>
+          <h1>video-ai</h1>
+          <p>ESP32-S3 CAM 抽烟行为识别</p>
+        </div>
+      </div>
+      <div class="system-status" aria-label="系统状态">
+        <div class="status-item">
+          <span class="status-label">连接</span>
+          <strong id="connectionStatus" class="status-value status-off">
+            <span class="status-dot" aria-hidden="true"></span>未连接
+          </strong>
+        </div>
+        <div class="status-item">
+          <span class="status-label">处理</span>
+          <strong id="processingStatus" class="status-value">空闲</strong>
+        </div>
+      </div>
+    </header>
+
+    <section class="workspace" aria-label="实时监控工作区">
+      <section class="video-section" aria-labelledby="videoTitle">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">LIVE VIEW</p>
+            <h2 id="videoTitle">实时视频</h2>
+          </div>
+          <span id="frameStatus" class="frame-status">等待视频帧</span>
+        </div>
+
+        <div class="video-stage">
+          <img id="videoFrame" alt="ESP32 摄像头实时检测画面">
+          <div id="emptyState" class="empty-state">
+            <strong>暂无视频帧</strong>
+            <span>启动处理后，检测画面将在此更新</span>
+          </div>
+        </div>
+
+        <section id="warningPanel" class="warning-panel risk-low" aria-labelledby="warningTitle">
+          <div class="warning-heading">
+            <span class="warning-indicator" aria-hidden="true"></span>
+            <h2 id="warningTitle">实时预警</h2>
+            <span id="riskLabel" class="risk-label">低风险</span>
+          </div>
+          <p id="warningMessage" aria-live="polite">等待启动</p>
+        </section>
+      </section>
+
+      <aside class="control-panel" aria-label="监控控制">
+        <section class="control-group" aria-labelledby="connectionTitle">
+          <div class="group-heading">
+            <span class="group-index">01</span>
+            <h2 id="connectionTitle">连接控制</h2>
+          </div>
+          <label for="esp32Address">ESP32 地址</label>
+          <input id="esp32Address" type="text" value="" placeholder="例如 192.168.166.200" autocomplete="off" spellcheck="false">
+          <button id="applyAddressButton" class="button" type="button">应用地址</button>
+          <div class="button-row">
+            <button id="startButton" class="button button-primary" type="button">启动处理</button>
+            <button id="stopButton" class="button" type="button">停止处理</button>
+          </div>
+        </section>
+
+        <section class="control-group" aria-labelledby="thresholdTitle">
+          <div class="group-heading">
+            <span class="group-index">02</span>
+            <h2 id="thresholdTitle">抽烟人数阈值</h2>
+          </div>
+          <div class="threshold-grid">
+            <label for="mediumInput">
+              <span>中风险</span>
+              <input id="mediumInput" type="number" min="1" step="1" value="1" inputmode="numeric">
+            </label>
+            <label for="highInput">
+              <span>高风险</span>
+              <input id="highInput" type="number" min="2" step="1" value="2" inputmode="numeric">
+            </label>
+          </div>
+          <button id="thresholdButton" class="button" type="button">应用阈值</button>
+        </section>
+
+        <section class="control-group" aria-labelledby="captureTitle">
+          <div class="group-heading">
+            <span class="group-index">03</span>
+            <h2 id="captureTitle">帧操作</h2>
+          </div>
+          <div class="button-row">
+            <button id="screenshotButton" class="button" type="button">截图</button>
+            <button id="saveButton" class="button" type="button">保存帧</button>
+          </div>
+          <div class="save-result">
+            <span>保存路径</span>
+            <output id="savePath">尚未保存</output>
+          </div>
+        </section>
+      </aside>
+    </section>
+
+    <footer class="metrics" aria-label="实时指标">
+      <div class="metric">
+        <span>检测人数</span>
+        <strong id="peopleValue">0</strong>
+        <small>PERSON</small>
+      </div>
+      <div class="metric">
+        <span>抽烟人数</span>
+        <strong id="smokingValue">0</strong>
+        <small>SMOKING</small>
+      </div>
+      <div class="metric">
+        <span>最高置信度</span>
+        <strong id="confidenceValue">0%</strong>
+        <small>CONFIDENCE</small>
+      </div>
+      <div class="metric">
+        <span>风险等级</span>
+        <strong id="riskValue">低</strong>
+        <small>RISK</small>
+      </div>
+      <div class="metric">
+        <span>RX FPS</span>
+        <strong id="rxFpsValue">0.0</strong>
+        <small>RECEIVE</small>
+      </div>
+      <div class="metric">
+        <span>AI FPS</span>
+        <strong id="aiFpsValue">0.0</strong>
+        <small>INFERENCE</small>
+      </div>
+      <div class="metric metric-time">
+        <span>最后更新</span>
+        <strong id="updatedValue">--:--:--</strong>
+        <small>LOCAL TIME</small>
+      </div>
+    </footer>
+  </main>
+
+  <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <script src="/static/dashboard.js?v=20260924-diag1"></script>
+</body>
+</html>

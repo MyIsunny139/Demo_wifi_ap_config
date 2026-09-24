@@ -36,4 +36,10 @@ CONFIG_LWIP_TCP_RECVMBOX_SIZE=12
 CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y
 
 CONFIG_CAMERA_CORE1=y
-CONFIG_CAMERA_PSRAM_DMA=y
+# Keep camera frame buffers in PSRAM, but use the driver's default non-PSRAM-DMA
+# capture path. Direct PSRAM DMA can cause JPEG SOI/EOI marker loss on this board.
+# CONFIG_CAMERA_PSRAM_DMA is not set
+# Reserve enough space for complex HD JPEG frames.
+# CONFIG_CAMERA_JPEG_MODE_FRAME_SIZE_AUTO is not set
+CONFIG_CAMERA_JPEG_MODE_FRAME_SIZE_CUSTOM=y
+CONFIG_CAMERA_JPEG_MODE_FRAME_SIZE=524288
