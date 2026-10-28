@@ -1,4 +1,4 @@
-"""Receive ESP32 JPEG frames, run person detection, and report risk."""
+"""Receive ESP32 JPEG frames, count people with YOLO, and report risk."""
 
 from __future__ import annotations
 
@@ -43,6 +43,8 @@ def normalize_class_label(label: str) -> str:
 def resolve_detection_classes(
     names: dict[int, str] | list[str] | tuple[str, ...],
     smoking_class_names: Iterable[str] = SMOKING_CLASS_ALIASES,
+    *,
+    require_smoking: bool = True,
 ) -> tuple[set[int], set[int]]:
     if isinstance(names, dict):
         model_names = {int(class_id): str(name) for class_id, name in names.items()}
@@ -60,12 +62,15 @@ def resolve_detection_classes(
         for class_id, name in model_names.items()
         if normalize_class_label(name) == "person"
     }
-    if not smoking_class_ids:
+    if require_smoking and not smoking_class_ids:
         available = ", ".join(model_names.values())
         raise ValueError(
             "模型不包含抽烟类别（支持 smoking/smooking/smoke/smoker/cigarette/person smoking/抽烟/吸烟）；"
             f"当前类别：{available}"
         )
+    if not person_class_ids and not smoking_class_ids:
+        available = ", ".join(model_names.values())
+        raise ValueError(f"模型不包含 person 类别；当前类别：{available}")
     return person_class_ids, smoking_class_ids
 
 
@@ -232,7 +237,7 @@ class Detection:
 
 
 class PersonDetector:
-    """Run a smoking-trained YOLO model and summarize its behavior detections."""
+    """Run a YOLO model and summarize the detected person count."""
 
     def __init__(
         self,
@@ -253,9 +258,9 @@ class PersonDetector:
         self.confidence = confidence
         self.device = device
         self.person_class_ids, self.smoking_class_ids = resolve_detection_classes(
-            self.model.names, smoking_class_names
+            self.model.names, smoking_class_names, require_smoking=False
         )
-        self.inference_class_ids = sorted(self.smoking_class_ids | self.person_class_ids)
+        self.inference_class_ids = sorted(self.person_class_ids or self.smoking_class_ids)
 
     @staticmethod
     def _tensor_values(values: Any) -> list[float]:
@@ -288,18 +293,20 @@ class PersonDetector:
             class_ids = [int(value) for value in self._tensor_values(result.boxes.cls)]
             confidences = self._tensor_values(result.boxes.conf)
 
-        smoking_confidences = [
+        person_confidences = [
             confidence
             for class_id, confidence in zip(class_ids, confidences)
-            if class_id in self.smoking_class_ids
+            if class_id in self.person_class_ids
         ]
-        smoking = len(smoking_confidences)
-        detected_people = sum(class_id in self.person_class_ids for class_id in class_ids)
-        people = max(detected_people, smoking)
+        smoking = sum(class_id in self.smoking_class_ids for class_id in class_ids)
+        people = len(person_confidences)
+        if not people and not self.person_class_ids:
+            people = smoking
         return Detection(
             people=people,
             smoking=smoking,
-            smoking_confidence=max(smoking_confidences, default=0.0),
+            # Kept under the legacy protocol name until all deployed clients migrate.
+            smoking_confidence=max(person_confidences, default=0.0),
             image=result.plot(),
         )
 
@@ -327,9 +334,8 @@ async def receive_stream(websocket: Any, frames: asyncio.Queue[bytes], rate: Str
 def draw_status(detector: PersonDetector, detection: Detection, level: str,
                 receive_fps: float, inference_fps: float) -> None:
     text = (
-        f"People: {detection.people}  Smoking: {detection.smoking}  "
-        f"Confidence: {detection.smoking_confidence:.0%}  Risk: {level.upper()}  "
-        f"RX: {receive_fps:.1f} FPS  AI: {inference_fps:.1f} FPS"
+        f"People: {detection.people}  Confidence: {detection.smoking_confidence:.0%}  "
+        f"Risk: {level.upper()}  RX: {receive_fps:.1f} FPS  AI: {inference_fps:.1f} FPS"
     )
     detector.cv2.rectangle(detection.image, (0, 0), (detection.image.shape[1], 34),
                            (24, 24, 24), -1)
@@ -356,7 +362,7 @@ async def process_stream(
             continue
 
         elapsed = max(time.monotonic() - started, 1e-6)
-        changed_level = policy.observe(detection.smoking)
+        changed_level = policy.observe(detection.people)
         message = reporter.next_message(
             policy.current_level,
             detection.people,
@@ -369,15 +375,14 @@ async def process_stream(
             await websocket.send(message)
             if changed_level is not None:
                 LOGGER.info(
-                    "Risk changed to %s (people=%d smoking=%d confidence=%.3f)",
+                    "Risk changed to %s (people=%d confidence=%.3f)",
                     changed_level,
                     detection.people,
-                    detection.smoking,
                     detection.smoking_confidence,
                 )
 
         draw_status(detector, detection, policy.current_level, rate.receive_fps, 1.0 / elapsed)
-        detector.cv2.imshow("video-ai", detection.image)
+        detector.cv2.imshow("Lab-Environment-Monitoring", detection.image)
         if detector.cv2.waitKey(1) & 0xFF == ord("q"):
             stop_event.set()
             return
@@ -450,7 +455,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", required=True, help="ESP32 IPv4 address")
     parser.add_argument("--port", type=int, default=81, help="WebSocket port")
     parser.add_argument(
-        "--model", default="smoking.onnx", help="Smoking-trained Ultralytics model path"
+        "--model", default="yolo11n.pt", help="Ultralytics person-detection model path"
     )
     parser.add_argument("--confidence", type=float, default=0.4, help="Detection confidence")
     parser.add_argument("--device", default=None, help="Ultralytics device, for example 0 or cpu")

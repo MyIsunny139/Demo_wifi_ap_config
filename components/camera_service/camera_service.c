@@ -24,9 +24,9 @@
 #define CAMERA_PIN_PCLK 13
 #define CAMERA_SENSOR_NAME "OV2640"
 #define CAMERA_XCLK_HZ 10000000
-#define CAMERA_INIT_FRAME_SIZE FRAMESIZE_HD
-#define CAMERA_FRAME_SIZE_NAME "HD (1280x720)"
-#define CAMERA_JPEG_QUALITY 20
+#define CAMERA_INIT_FRAME_SIZE FRAMESIZE_SVGA
+#define CAMERA_FRAME_SIZE_NAME "SVGA (800x600)"
+#define CAMERA_JPEG_QUALITY 24
 #define CAMERA_RECOVERY_DELAY_MS 100
 
 static const char *TAG = "camera_service";
@@ -61,9 +61,9 @@ esp_err_t camera_service_init(void)
         .pixel_format = PIXFORMAT_JPEG,
         .frame_size = CAMERA_INIT_FRAME_SIZE,
         .jpeg_quality = CAMERA_JPEG_QUALITY,
-        .fb_count = 1,
+        .fb_count = 2,
         .fb_location = CAMERA_FB_IN_PSRAM,
-        .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
+        .grab_mode = CAMERA_GRAB_LATEST,
         .sccb_i2c_port = -1,
     };
 
@@ -82,7 +82,7 @@ esp_err_t camera_service_init(void)
     }
 
     camera_ready = true;
-    ESP_LOGI(TAG, "%s ready: %s JPEG, xclk=%u Hz, quality=%d, frame_buffers=1, buffer=PSRAM",
+    ESP_LOGI(TAG, "%s ready: %s JPEG, xclk=%u Hz, quality=%d, frame_buffers=2, grab=latest, buffer=PSRAM",
              CAMERA_SENSOR_NAME,
              CAMERA_FRAME_SIZE_NAME,
              (unsigned)CAMERA_XCLK_HZ, CAMERA_JPEG_QUALITY);

@@ -31,7 +31,7 @@ def wait_for_server(process: subprocess.Popen[bytes], base_url: str) -> None:
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise RuntimeError(f"video-ai.exe exited with code {process.returncode}")
+            raise RuntimeError(f"Lab-Environment-Monitoring.exe exited with code {process.returncode}")
         try:
             read_state(base_url)
             return
@@ -85,7 +85,7 @@ def stop_process(
             process.wait(timeout=5)
         if result.returncode != 0:
             raise RuntimeError(
-                f"Failed to terminate video-ai process tree (PID {process.pid})"
+                f"Failed to terminate Lab-Environment-Monitoring process tree (PID {process.pid})"
             )
         return
     process.terminate()
@@ -123,7 +123,7 @@ def main() -> None:
     )
     try:
         wait_for_server(process, base_url)
-        if b"video-ai" not in request(f"{base_url}/"):
+        if b"Lab-Environment-Monitoring" not in request(f"{base_url}/"):
             raise RuntimeError("Dashboard HTML is missing expected content")
         if not request(f"{base_url}/static/dashboard.css"):
             raise RuntimeError("Dashboard stylesheet is empty")
@@ -132,7 +132,7 @@ def main() -> None:
     finally:
         stop_process(process)
 
-    log_path = app_dir / "logs" / "video-ai.log"
+    log_path = app_dir / "logs" / "Lab-Environment-Monitoring.log"
     if not log_path.is_file() or log_path.stat().st_size == 0:
         raise RuntimeError("Packaged log file was not created")
     print(f"Smoke test passed: {executable}")

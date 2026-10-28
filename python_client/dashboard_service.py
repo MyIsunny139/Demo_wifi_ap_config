@@ -68,7 +68,7 @@ class DashboardService:
         self,
         host: str,
         port: int = 81,
-        model: str = "smoking.onnx",
+        model: str = "yolo11n.pt",
         confidence: float = 0.4,
         device: str | None = None,
         reconnect_delay: float = 2.0,
@@ -96,8 +96,10 @@ class DashboardService:
         self._reporter = RiskReporter(refresh_seconds=1.0)
         self._policy = _LevelPolicy(required_frames=3)
         self._capture_sequence = 0
+        self._rx_sequence = 0
         self._last_rx_at: float | None = None
         self._frame_metadata: dict[str, tuple[int, float]] = {}
+        self._preview_frames: dict[int, bytes] = {}
         self._browser_frame_requests = 0
         self._pending_commands: dict[int, float] = {}
         self._connector = connector
@@ -146,13 +148,32 @@ class DashboardService:
         self._detached_browser_tasks.clear()
         self._detached_browser_owners.clear()
 
-    async def update_thresholds(self, medium_smoking: int, high_smoking: int) -> None:
-        self.state.set_thresholds(
-            Thresholds(
+    async def update_thresholds(
+        self,
+        max_people: int | None = None,
+        *,
+        temperature_max: float = 35.0,
+        humidity_max: float = 70.0,
+        mq2_max: int = 1800,
+        medium_smoking: int | None = None,
+        high_smoking: int | None = None,
+    ) -> None:
+        if max_people is None and medium_smoking is not None:
+            thresholds = Thresholds(
                 medium_smoking=medium_smoking,
                 high_smoking=high_smoking,
+                temperature_max=temperature_max,
+                humidity_max=humidity_max,
+                mq2_max=mq2_max,
             )
-        )
+        else:
+            thresholds = Thresholds(
+                max_people=max_people if max_people is not None else 3,
+                temperature_max=temperature_max,
+                humidity_max=humidity_max,
+                mq2_max=mq2_max,
+            )
+        self.state.set_thresholds(thresholds)
         await self.broadcast()
 
     async def update_connection(self, host: str, port: int) -> None:
@@ -368,6 +389,7 @@ class DashboardService:
     async def _run_connection(self, websocket: Any, detector: PersonDetector) -> None:
         self._last_rx_at = None
         self._frame_metadata.clear()
+        self._preview_frames.clear()
         self._pending_commands.clear()
         frames: asyncio.Queue[bytes] = asyncio.Queue(maxsize=1)
         rate = StreamRate()
@@ -427,8 +449,8 @@ class DashboardService:
                     self.state.last_error = "ESP32 JPEG frame contained dirty bytes and was repaired"
                     await self.broadcast()
                 rate.record_frame(time.monotonic())
-                self.state.update_preview_frame(jpeg, getattr(rate, "receive_fps", 0.0))
-                sequence = self.state.frame_sequence
+                self._rx_sequence += 1
+                sequence = self._rx_sequence
                 self._frame_metadata[digest] = (sequence, received_at)
                 if len(self._frame_metadata) > 64:
                     self._frame_metadata.pop(next(iter(self._frame_metadata)))
@@ -445,7 +467,35 @@ class DashboardService:
                     self.state.risk,
                     self.state.smoking,
                 )
-                await self.broadcast()
+                continue
+            try:
+                telemetry = json.loads(message)
+            except (json.JSONDecodeError, TypeError):
+                telemetry = None
+            if isinstance(telemetry, dict) and telemetry.get("type") == "environment":
+                dht_valid = telemetry.get("dht_valid") is True
+                temperature = telemetry.get("temperature_c")
+                humidity = telemetry.get("humidity_pct")
+                mq2_adc = telemetry.get("mq2_adc")
+                sampled_at_ms = telemetry.get("sampled_at_ms")
+                if (
+                    isinstance(temperature, (int, float)) and not isinstance(temperature, bool)
+                    and isinstance(humidity, (int, float)) and not isinstance(humidity, bool)
+                    and type(mq2_adc) is int and 0 <= mq2_adc <= 4095
+                    and type(sampled_at_ms) is int and sampled_at_ms >= 0
+                    and -40 <= temperature <= 125 and 0 <= humidity <= 100
+                ):
+                    self.state.update_environment(
+                        dht_valid, float(temperature), float(humidity), mq2_adc,
+                        sampled_at_ms,
+                    )
+                    DIAGNOSTIC_LOGGER.info(
+                        "ENV temperature_c=%.1f humidity_pct=%.1f mq2_adc=%d dht_valid=%s",
+                        temperature, humidity, mq2_adc, dht_valid,
+                    )
+                    await self.broadcast()
+                else:
+                    DIAGNOSTIC_LOGGER.warning("ENV invalid payload=%r", str(message)[:256])
                 continue
             ack = parse_ack(message)
             if ack:
@@ -494,12 +544,28 @@ class DashboardService:
             await self.broadcast()
             return
         digest = hashlib.sha256(jpeg).hexdigest()[:16]
-        sequence, received_at = self._frame_metadata.get(digest, (0, time.monotonic()))
+        sequence, received_at = self._frame_metadata.get(
+            digest,
+            (self.state.frame_sequence + 1, time.monotonic()),
+        )
         started = time.monotonic()
         try:
             detection: Detection = await self._run_worker(detector.detect, jpeg)
             elapsed = max(time.monotonic() - started, 1e-6)
-            observed_level = self.state.thresholds.classify(detection.smoking)
+            self.state.update_preview_frame(jpeg, receive_fps, sequence)
+            self._preview_frames[sequence] = jpeg
+            if len(self._preview_frames) > 8:
+                self._preview_frames.pop(next(iter(self._preview_frames)))
+            people_level = self.state.thresholds.classify(detection.people)
+            environment_level = self.state.thresholds.classify_environment(
+                self.state.temperature_c,
+                self.state.humidity_pct,
+                self.state.mq2_adc,
+                self.state.dht_valid,
+            )
+            observed_level = (
+                "high" if environment_level == "high" else people_level
+            )
             previous_level = self._policy.current_level
             changed = self._policy.observe(observed_level)
             level = self._policy.current_level
@@ -528,6 +594,8 @@ class DashboardService:
                     detection.people,
                     detection.smoking,
                     detection.smoking_confidence,
+                    max_people=self.state.thresholds.max_people,
+                    environment_level=environment_level,
                 ),
             )
             message = self._reporter.next_message(
@@ -578,6 +646,14 @@ class DashboardService:
             self.state.smoking,
         )
 
+    def get_preview_frame(self, requested_sequence: int = 0) -> bytes | None:
+        """Return the requested validated frame when it is still in the short cache."""
+        if requested_sequence > 0:
+            frame = self._preview_frames.get(requested_sequence)
+            if frame is not None:
+                return frame
+        return self.state.latest_frame
+
     def log_browser_event(self, event: str, frame_sequence: int, width: int, height: int,
                           risk: str, frame_url: str) -> None:
         DIAGNOSTIC_LOGGER.info(
@@ -604,7 +680,22 @@ class DashboardService:
         people: int,
         smoking: int,
         smoking_confidence: float,
+        *,
+        max_people: int | None = None,
+        environment_level: str = "low",
     ) -> str:
+        if max_people is not None:
+            if environment_level == "high":
+                return (
+                    f"高风险：环境传感器超过阈值（温度/湿度/MQ2），"
+                    "已触发声光报警"
+                )
+            if level == "low":
+                return f"低风险：当前人数 {people}，最大允许人数 {max_people}"
+            return (
+                f"{level == 'medium' and '中风险' or '高风险'}：当前人数 {people}，"
+                f"超过最大允许人数 {max_people}，已触发声光报警"
+            )
         labels = {"low": "低风险", "medium": "中风险", "high": "高风险"}
         if smoking == 0 and level == "low":
             return f"低风险：未检测到抽烟行为，画面中 {people} 人"

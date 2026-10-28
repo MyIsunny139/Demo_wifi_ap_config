@@ -15,4 +15,4 @@ dependencies:
   #   # All dependencies of `main` are public by default.
   #   public: true
   espressif/esp32-camera: ^2.1.7
-  espressif/led_strip: ^3.0.3
+  esp-idf-lib/dht: ^1.2.0

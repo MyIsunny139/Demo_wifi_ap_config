@@ -12,7 +12,7 @@ ultralytics_datas, ultralytics_binaries, ultralytics_hiddenimports = collect_all
 
 datas = [
     (str(PROJECT_ROOT / "python_client" / "static"), "python_client/static"),
-    (str(PROJECT_ROOT / "smoking.onnx"), "."),
+    (str(PROJECT_ROOT / "yolo11n.pt"), "."),
     *ultralytics_datas,
 ]
 hiddenimports = sorted(
@@ -43,7 +43,7 @@ exe = EXE(
     analysis.scripts,
     [],
     exclude_binaries=True,
-    name="video-ai",
+    name="Lab-Environment-Monitoring",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -63,5 +63,5 @@ collection = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="video-ai",
+    name="Lab-Environment-Monitoring",
 )

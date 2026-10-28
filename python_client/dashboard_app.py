@@ -15,12 +15,16 @@ from .dashboard_state import Thresholds
 
 
 STATIC_DIR = Path(__file__).with_name("static")
-FALLBACK_INDEX = "<!doctype html><html><body><h1>video-ai</h1></body></html>"
+FALLBACK_INDEX = "<!doctype html><html><body><h1>Lab-Environment-Monitoring</h1></body></html>"
 
 
 class ThresholdPayload(BaseModel):
-    medium_smoking: StrictInt
-    high_smoking: StrictInt
+    max_people: StrictInt | None = None
+    temperature_max: float = 35.0
+    humidity_max: float = 70.0
+    mq2_max: StrictInt = 1800
+    medium_smoking: StrictInt | None = None
+    high_smoking: StrictInt | None = None
 
 
 class Esp32Payload(BaseModel):
@@ -70,7 +74,7 @@ class BrowserDiagnosticPayload(BaseModel):
 def create_app(
     host: str,
     port: int = 81,
-    model: str = "smoking.onnx",
+    model: str = "yolo11n.pt",
     confidence: float = 0.4,
     device: str | None = None,
     capture_dir: Path | str = "captures",
@@ -91,7 +95,7 @@ def create_app(
         finally:
             await service.stop()
 
-    app = FastAPI(title="video-ai dashboard", lifespan=lifespan)
+    app = FastAPI(title="Lab-Environment-Monitoring", lifespan=lifespan)
     app.state.dashboard_service = service
     if STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -133,15 +137,44 @@ def create_app(
     @app.post("/api/thresholds")
     async def thresholds(payload: ThresholdPayload) -> dict[str, object]:
         try:
-            validated = Thresholds(
-                medium_smoking=payload.medium_smoking,
-                high_smoking=payload.high_smoking,
-            )
+            if payload.max_people is not None and (
+                payload.medium_smoking is not None or payload.high_smoking is not None
+            ):
+                raise ValueError("provide max_people only")
+            if payload.max_people is not None:
+                validated = Thresholds(
+                    max_people=payload.max_people,
+                    temperature_max=payload.temperature_max,
+                    humidity_max=payload.humidity_max,
+                    mq2_max=payload.mq2_max,
+                )
+            elif payload.medium_smoking is not None or payload.high_smoking is not None:
+                validated = Thresholds(
+                    medium_smoking=payload.medium_smoking,
+                    high_smoking=payload.high_smoking,
+                    temperature_max=payload.temperature_max,
+                    humidity_max=payload.humidity_max,
+                    mq2_max=payload.mq2_max,
+                )
+            else:
+                raise ValueError("max_people is required")
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-        await service.update_thresholds(
-            validated.medium_smoking, validated.high_smoking
-        )
+        if payload.max_people is not None:
+            await service.update_thresholds(
+                validated.max_people,
+                temperature_max=payload.temperature_max,
+                humidity_max=payload.humidity_max,
+                mq2_max=payload.mq2_max,
+            )
+        else:
+            await service.update_thresholds(
+                medium_smoking=validated._legacy_medium,
+                high_smoking=validated._legacy_high,
+                temperature_max=payload.temperature_max,
+                humidity_max=payload.humidity_max,
+                mq2_max=payload.mq2_max,
+            )
         return state_payload()
 
     async def save_frame(prefix: str) -> dict[str, str]:
@@ -164,7 +197,7 @@ def create_app(
 
     @app.get("/frame/latest.jpg")
     async def latest_frame(f: int = 0) -> Response:
-        frame = service.state.latest_frame
+        frame = service.get_preview_frame(f)
         if frame is None:
             raise HTTPException(status_code=404, detail="no frame available")
         service.log_browser_frame_request(frame, requested_sequence=f)

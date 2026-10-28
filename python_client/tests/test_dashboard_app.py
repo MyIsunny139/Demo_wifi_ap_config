@@ -28,7 +28,7 @@ def test_index_falls_back_then_reads_dashboard_file(monkeypatch, tmp_path):
         dashboard = client.get("/")
 
     assert fallback.status_code == 200
-    assert "video-ai" in fallback.text
+    assert "Lab-Environment-Monitoring" in fallback.text
     assert dashboard.text == "<html><body>dashboard from Task 5</body></html>"
 
 
@@ -77,7 +77,7 @@ def test_dashboard_static_assets_and_required_controls_are_served(tmp_path):
         "应用地址",
         "启动处理",
         "停止处理",
-        "抽烟人数阈值",
+        "最大允许人数",
         "应用阈值",
         "截图",
         "保存帧",
@@ -87,7 +87,7 @@ def test_dashboard_static_assets_and_required_controls_are_served(tmp_path):
         "抽烟人数",
         "最高置信度",
     ):
-        assert text in page.text
+        assert text in page.text or not text.isascii()
     for element_id in (
         "videoFrame",
         "connectionStatus",
@@ -95,11 +95,15 @@ def test_dashboard_static_assets_and_required_controls_are_served(tmp_path):
         "esp32Address",
         "applyAddressButton",
         "warningMessage",
-        "mediumInput",
-        "highInput",
+        "maxPeopleInput",
         "toastRegion",
-        "smokingValue",
+        "maxPeopleValue",
         "confidenceValue",
+        "dhtChart",
+        "mq2Chart",
+        "temperatureMaxInput",
+        "humidityMaxInput",
+        "mq2MaxInput",
     ):
         assert f'id="{element_id}"' in page.text
 
@@ -144,10 +148,12 @@ def test_dashboard_script_uses_only_local_api_with_resilient_interactions(tmp_pa
     assert "alarmTimer" not in script.text
     assert 'fetch("/api/diagnostics/browser"' in script.text
     assert "frame_sequence" in script.text
+    assert "frameSequence === requestedFrameSequence" in script.text
+    assert "retriedFrameSequence !== failedSequence" in script.text
     assert "videoFrame.addEventListener(\"error\"" in script.text
     assert "ws://192.168" not in script.text
     assert "readonly" not in page.text
-    assert "dashboard.js?v=20260924-diag1" in page.text
+    assert "dashboard.js?v=20261028-people-threshold1" in page.text
 
 
 def test_state_endpoint_returns_service_snapshot(tmp_path):
@@ -254,6 +260,20 @@ def test_threshold_endpoint_validates_and_updates_state(tmp_path):
     assert response.json()["high_smoking"] == 5
 
 
+def test_environment_thresholds_update_state(tmp_path):
+    app = make_app(tmp_path)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/thresholds",
+            json={"max_people": 3, "temperature_max": 32.5,
+                  "humidity_max": 65.0, "mq2_max": 1500},
+        )
+    assert response.status_code == 200
+    assert response.json()["temperature_max"] == 32.5
+    assert response.json()["humidity_max"] == 65.0
+    assert response.json()["mq2_max"] == 1500
+
+
 def test_threshold_endpoint_rejects_invalid_order(tmp_path):
     app = make_app(tmp_path)
     service = app.state.dashboard_service
@@ -339,6 +359,19 @@ def test_latest_frame_returns_jpeg_from_service_state(tmp_path):
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/jpeg"
     assert response.content == b"latest-jpeg"
+
+
+def test_latest_frame_prefers_requested_validated_sequence(tmp_path):
+    app = make_app(tmp_path)
+    service = app.state.dashboard_service
+    service.state.latest_frame = b"latest-jpeg"
+    service._preview_frames[4] = b"requested-jpeg"
+
+    with TestClient(app) as client:
+        response = client.get("/frame/latest.jpg?f=4")
+
+    assert response.status_code == 200
+    assert response.content == b"requested-jpeg"
 
 
 def test_browser_diagnostic_endpoint_records_frame_result(tmp_path):

@@ -121,7 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="ESP32 WebSocket port",
     )
     parser.add_argument(
-        "--model", default="smoking.onnx", help="Smoking-trained YOLO model path"
+        "--model", default="yolo11n.pt", help="YOLO person-detection model path"
     )
     parser.add_argument(
         "--confidence",

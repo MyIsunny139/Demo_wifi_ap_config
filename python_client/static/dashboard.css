@@ -163,7 +163,60 @@ h1 {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 10px;
+}
+
+.environment-charts {
+  min-width: 0;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.chart-panel {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.chart-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.chart-heading h2 {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.chart-heading span {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+.chart-legend {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.legend-temperature { color: #54c792; }
+.legend-humidity { color: #78b7e5; }
+
+.chart-panel canvas {
+  display: block;
+  width: 100%;
+  height: 150px;
 }
 
 .video-section {
@@ -393,7 +446,7 @@ input:disabled {
 
 .threshold-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   margin-bottom: 9px;
 }
 
@@ -504,6 +557,11 @@ input:disabled {
   }
 
   .workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+  }
+
+  .environment-charts {
     grid-template-columns: 1fr;
   }
 

@@ -4,11 +4,11 @@ Set-StrictMode -Version Latest
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $python = Join-Path $projectRoot ".venv\Scripts\python.exe"
 $requirements = Join-Path $projectRoot "python_client\requirements-build.txt"
-$spec = Join-Path $projectRoot "video-ai.spec"
+$spec = Join-Path $projectRoot "Lab-Environment-Monitoring.spec"
 $distPath = Join-Path $projectRoot "dist"
 $workPath = Join-Path $projectRoot ".packaging"
-$outputExe = Join-Path $distPath "video-ai\video-ai.exe"
-$outputInternal = Join-Path $distPath "video-ai\_internal"
+$outputExe = Join-Path $distPath "Lab-Environment-Monitoring\Lab-Environment-Monitoring.exe"
+$outputInternal = Join-Path $distPath "Lab-Environment-Monitoring\_internal"
 $system32 = Join-Path $env:SystemRoot "System32"
 $runtimeDlls = @(
     "msvcp140.dll",
@@ -21,8 +21,8 @@ $smokeTest = Join-Path $projectRoot "tools\smoke_test_windows_exe.py"
 if (-not (Test-Path -LiteralPath $python)) {
     throw "Python virtual environment not found: $python"
 }
-if (-not (Test-Path -LiteralPath (Join-Path $projectRoot "smoking.onnx"))) {
-    throw "Smoking YOLO model not found: smoking.onnx"
+if (-not (Test-Path -LiteralPath (Join-Path $projectRoot "yolo11n.pt"))) {
+    throw "YOLO person model not found: yolo11n.pt"
 }
 
 $pythonBits = & $python -c "import struct; print(struct.calcsize('P') * 8)"

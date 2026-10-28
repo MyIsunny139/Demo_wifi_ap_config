@@ -1,5 +1,6 @@
 import asyncio
 import gc
+import hashlib
 import json
 import threading
 import time
@@ -511,7 +512,7 @@ async def test_stop_waits_for_blocking_model_worker_to_release():
 
 
 @async_test
-async def test_receive_stream_keeps_latest_frame_and_reports_rejected_ack():
+async def test_receive_stream_queues_latest_frame_without_publishing_it():
     service = DashboardService(host="192.168.1.3")
     browser = FakeBrowser()
     service.add_browser(browser)
@@ -528,15 +529,32 @@ async def test_receive_stream_keeps_latest_frame_and_reports_rejected_ack():
     await service._receive_stream(websocket, frames, rate)
 
     assert frames.get_nowait() == NEW_JPEG
-    assert service.state.latest_frame == NEW_JPEG
+    assert service.state.latest_frame is None
+    assert service.state.frame_sequence == 0
+    assert service._rx_sequence == 2
     assert service.state.last_error == "ESP32 指令 7 被拒绝：bad level"
     assert json.loads(browser.sent[-1])["state"]["last_error"] == service.state.last_error
 
 
 @async_test
-async def test_process_frame_updates_detection_without_replacing_preview(monkeypatch):
+async def test_receive_stream_updates_environment_sensor_state():
     service = DashboardService(host="192.168.1.3")
-    await service.update_thresholds(medium_smoking=1, high_smoking=2)
+    websocket = FakeESP32WebSocket([
+        '{"type":"environment","dht_valid":true,"temperature_c":24.5,"humidity_pct":45,"mq2_adc":900,"sampled_at_ms":2000}'
+    ])
+    await service._receive_stream(
+        websocket, asyncio.Queue(maxsize=1), SimpleNamespace(record_frame=lambda now: None)
+    )
+    assert service.state.temperature_c == 24.5
+    assert service.state.humidity_pct == 45.0
+    assert service.state.mq2_adc == 900
+    assert service.state.environment_sampled_at_ms == 2000
+
+
+@async_test
+async def test_process_frame_publishes_preview_after_successful_decode(monkeypatch):
+    service = DashboardService(host="192.168.1.3")
+    await service.update_thresholds(max_people=1)
     service.state.latest_frame = b"preview-jpeg"
     detector = FakeDetector(people=2, smoking=1, smoking_confidence=0.86)
     websocket = FakeESP32WebSocket()
@@ -559,16 +577,68 @@ async def test_process_frame_updates_detection_without_replacing_preview(monkeyp
     assert commands[-1]["people"] == 2
     assert commands[-1]["smoking"] == 1
     assert commands[-1]["smoking_confidence"] == 0.86
-    assert service.state.warning == "中风险：检测到 1 人抽烟，最高置信度 86%，画面中 2 人"
-    assert service.state.latest_frame == b"preview-jpeg"
+    assert service.state.warning == "中风险：当前人数 2，超过最大允许人数 1，已触发声光报警"
+    assert service.state.latest_frame == RAW_JPEG
+    assert service.state.frame_sequence == 3
     assert detector.detect in calls
     assert service._encode_jpeg not in calls
 
 
 @async_test
+async def test_mq2_threshold_triggers_high_risk_command():
+    service = DashboardService(host="192.168.1.3")
+    service.state.update_environment(True, 24.0, 45.0, 1900, 2000)
+    websocket = FakeESP32WebSocket()
+    service._reporter.start_connection()
+
+    for _ in range(3):
+        await service._process_frame(websocket, RAW_JPEG, 8.0, FakeDetector(people=0))
+
+    commands = [json.loads(message) for message in websocket.sent]
+    assert service.state.risk == "high"
+    assert commands[-1]["level"] == "high"
+    assert "环境传感器超过阈值" in service.state.warning
+
+
+@async_test
+async def test_process_frame_keeps_previous_preview_when_decode_fails():
+    service = DashboardService(host="192.168.1.3")
+    service.state.update_preview_frame(b"previous-valid-jpeg", 7.0, frame_sequence=9)
+    service.state.update_detection(1, 1, 0.8, "medium", 3.0, "existing warning")
+    websocket = FakeESP32WebSocket()
+
+    class InvalidJpegDetector:
+        def detect(self, jpeg):
+            raise ValueError("received an invalid JPEG frame")
+
+    await service._process_frame(websocket, RAW_JPEG, 8.0, InvalidJpegDetector())
+
+    assert service.state.latest_frame == b"previous-valid-jpeg"
+    assert service.state.frame_sequence == 9
+    assert service.state.risk == "medium"
+    assert service.state.last_error == "received an invalid JPEG frame"
+    assert websocket.sent == []
+
+
+@async_test
+async def test_process_frame_preserves_receive_sequence_after_queued_frames_are_dropped():
+    service = DashboardService(host="192.168.1.3")
+    detector = FakeDetector()
+    websocket = FakeESP32WebSocket()
+    digest = hashlib.sha256(RAW_JPEG).hexdigest()[:16]
+    service._frame_metadata[digest] = (6, time.monotonic())
+
+    await service._process_frame(websocket, RAW_JPEG, 8.0, detector)
+
+    assert service.state.latest_frame == RAW_JPEG
+    assert service.state.frame_sequence == 6
+
+
+@async_test
 async def test_process_frame_clears_medium_risk_on_first_non_smoking_frame():
     service = DashboardService(host="192.168.1.3")
-    detector = FakeDetector(people=1, smoking=1, smoking_confidence=0.86)
+    await service.update_thresholds(max_people=1)
+    detector = FakeDetector(people=2, smoking=1, smoking_confidence=0.86)
     websocket = FakeESP32WebSocket()
     service._reporter.start_connection()
 
@@ -576,6 +646,7 @@ async def test_process_frame_clears_medium_risk_on_first_non_smoking_frame():
         await service._process_frame(websocket, RAW_JPEG, 8.0, detector)
     assert service.state.risk == "medium"
 
+    detector.people = 1
     detector.smoking = 0
     detector.smoking_confidence = 0.0
     await service._process_frame(websocket, RAW_JPEG, 8.0, detector)

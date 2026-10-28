@@ -20,6 +20,13 @@ def test_thresholds_classify_configurable_smoking_counts():
     assert thresholds.classify(5) == "high"
 
 
+def test_environment_thresholds_classify_sensor_alerts():
+    thresholds = Thresholds(temperature_max=35.0, humidity_max=70.0, mq2_max=1800)
+    assert thresholds.classify_environment(20.0, 50.0, 900, True) == "low"
+    assert thresholds.classify_environment(36.0, 50.0, 900, True) == "high"
+    assert thresholds.classify_environment(20.0, 50.0, 1900, False) == "high"
+
+
 @pytest.mark.parametrize("smoking", [True, 2.5, -1])
 def test_thresholds_classify_rejects_invalid_smoking_counts(smoking):
     thresholds = Thresholds(medium_smoking=2, high_smoking=5)
@@ -70,6 +77,15 @@ def test_dashboard_state_keeps_latest_frame_and_snapshot():
     assert snapshot["inference_fps"] == 3.2
     assert snapshot["warning"] == "中风险：检测到 4 人"
     assert snapshot["frame_sequence"] == 1
+
+
+def test_dashboard_state_accepts_explicit_frame_sequence_with_gaps():
+    state = DashboardState()
+
+    state.update_preview_frame(b"frame", 8.0, frame_sequence=7)
+
+    assert state.latest_frame == b"frame"
+    assert state.frame_sequence == 7
 
 
 def test_build_risk_command_matches_esp32_protocol():

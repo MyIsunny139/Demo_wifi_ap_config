@@ -57,7 +57,7 @@ def build_dashboard_args(argv: Sequence[str] | None = None) -> list[str]:
         "--device",
         "cpu",
         "--model",
-        str(bundle_root() / "smoking.onnx"),
+        str(bundle_root() / "yolo11n.pt"),
         "--capture-dir",
         str(application_root() / "captures"),
         "--diagnostic-log",
@@ -74,7 +74,7 @@ def initialize_logging(
 ) -> TextIO:
     log_dir = (root or application_root()) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    stream = (log_dir / "video-ai.log").open(
+    stream = (log_dir / "Lab-Environment-Monitoring.log").open(
         "a", encoding="utf-8", buffering=1
     )
     if console:
@@ -111,14 +111,14 @@ def launch(argv: Sequence[str] | None = None, *, runner=None) -> int:
     try:
         runner(build_dashboard_args(argv))
     except BaseException:
-        LOGGER.exception("video-ai stopped during startup")
+        LOGGER.exception("Lab-Environment-Monitoring stopped during startup")
         return 1
     return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     initialize_logging(console=True, redirect_native=False)
-    LOGGER.info("Starting packaged video-ai dashboard")
+    LOGGER.info("Starting packaged Lab-Environment-Monitoring dashboard")
     return launch(argv)
 
 

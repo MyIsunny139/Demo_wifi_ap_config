@@ -37,6 +37,16 @@ static SemaphoreHandle_t scan_sem = NULL;
 static const char *wifi_disconnect_reason_name(uint8_t reason)
 {
     switch (reason) {
+    case WIFI_REASON_AUTH_EXPIRE:
+        return "AUTH_EXPIRE";
+    case WIFI_REASON_ASSOC_EXPIRE:
+        return "ASSOC_EXPIRE";
+    case WIFI_REASON_AUTH_LEAVE:
+        return "AUTH_LEAVE";
+    case WIFI_REASON_ASSOC_LEAVE:
+        return "ASSOC_LEAVE";
+    case WIFI_REASON_NOT_AUTHED:
+        return "NOT_AUTHED";
     case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
         return "4WAY_HANDSHAKE_TIMEOUT";
     case WIFI_REASON_AUTH_FAIL:

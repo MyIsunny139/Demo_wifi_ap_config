@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>video-ai 实时监控</title>
-  <link rel="stylesheet" href="/static/dashboard.css?v=20260924-smoking1">
+  <title>Lab-Environment-Monitoring</title>
+  <link rel="stylesheet" href="/static/dashboard.css?v=20261028-people1">
 </head>
 <body>
   <main class="dashboard">
@@ -13,8 +13,8 @@
       <div class="identity">
         <span class="mark" aria-hidden="true">VA</span>
         <div>
-          <h1>video-ai</h1>
-          <p>ESP32-S3 CAM 抽烟行为识别</p>
+          <h1>Lab-Environment-Monitoring</h1>
+          <p>ESP32-S3 CAM 人数监测</p>
         </div>
       </div>
       <div class="system-status" aria-label="系统状态">
@@ -77,16 +77,24 @@
         <section class="control-group" aria-labelledby="thresholdTitle">
           <div class="group-heading">
             <span class="group-index">02</span>
-            <h2 id="thresholdTitle">抽烟人数阈值</h2>
+            <h2 id="thresholdTitle">最大允许人数</h2>
           </div>
           <div class="threshold-grid">
-            <label for="mediumInput">
-              <span>中风险</span>
-              <input id="mediumInput" type="number" min="1" step="1" value="1" inputmode="numeric">
+            <label for="maxPeopleInput">
+              <span>超过该人数后报警</span>
+              <input id="maxPeopleInput" type="number" min="0" step="1" value="3" inputmode="numeric">
             </label>
-            <label for="highInput">
-              <span>高风险</span>
-              <input id="highInput" type="number" min="2" step="1" value="2" inputmode="numeric">
+            <label for="temperatureMaxInput">
+              <span>最高温度 °C</span>
+              <input id="temperatureMaxInput" type="number" min="0" max="125" step="0.1" value="35" inputmode="decimal">
+            </label>
+            <label for="humidityMaxInput">
+              <span>最高湿度 %</span>
+              <input id="humidityMaxInput" type="number" min="0" max="100" step="0.1" value="70" inputmode="decimal">
+            </label>
+            <label for="mq2MaxInput">
+              <span>MQ2 报警 ADC</span>
+              <input id="mq2MaxInput" type="number" min="0" max="4095" step="1" value="1800" inputmode="numeric">
             </label>
           </div>
           <button id="thresholdButton" class="button" type="button">应用阈值</button>
@@ -107,6 +115,16 @@
           </div>
         </section>
       </aside>
+      <section class="environment-charts" aria-label="环境传感器趋势">
+        <div class="chart-panel">
+          <div class="chart-heading"><div><h2>温湿度趋势</h2><small class="chart-legend"><span class="legend-temperature">温度 °C</span><span class="legend-humidity">湿度 %</span></small></div><span id="dhtChartValue">--</span></div>
+          <canvas id="dhtChart" width="640" height="180"></canvas>
+        </div>
+        <div class="chart-panel">
+          <div class="chart-heading"><h2>MQ2 烟雾趋势</h2><span id="mq2ChartValue">--</span></div>
+          <canvas id="mq2Chart" width="640" height="180"></canvas>
+        </div>
+      </section>
     </section>
 
     <footer class="metrics" aria-label="实时指标">
@@ -116,9 +134,9 @@
         <small>PERSON</small>
       </div>
       <div class="metric">
-        <span>抽烟人数</span>
-        <strong id="smokingValue">0</strong>
-        <small>SMOKING</small>
+        <span>最大允许人数</span>
+        <strong id="maxPeopleValue">3</strong>
+        <small>THRESHOLD</small>
       </div>
       <div class="metric">
         <span>最高置信度</span>
@@ -149,6 +167,6 @@
   </main>
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
-  <script src="/static/dashboard.js?v=20260924-diag1"></script>
+  <script src="/static/dashboard.js?v=20261028-people-threshold1"></script>
 </body>
 </html>

@@ -9,7 +9,9 @@
 #include "esp_psram.h"
 #include "esp_system.h"
 #include "esp_flash.h"
+#include "environment_sensor.h"
 #include "nvs_flash.h"
+#include "oled_display.h"
 #include "status_led.h"
 #include "video_stream.h"
 #include "freertos/FreeRTOS.h"
@@ -142,11 +144,13 @@ static void wifi_state_handle(WIFI_STATE state)
 {
     if (state == WIFI_STATE_CONNECTED) {
         ESP_LOGI(TAG, "Wi-Fi connected");
+        oled_display_show_ip();
         if (video_control_task_handle) {
             xTaskNotify(video_control_task_handle, VIDEO_CTRL_START, eSetValueWithOverwrite);
         }
     } else {
         ESP_LOGW(TAG, "Wi-Fi disconnected");
+        oled_display_show_status("WIFI DISCONNECTED");
         if (video_control_task_handle) {
             xTaskNotify(video_control_task_handle, VIDEO_CTRL_STOP, eSetValueWithOverwrite);
         }
@@ -169,6 +173,16 @@ esp_err_t app_system_init(void)
     err = status_led_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Status LED unavailable: %s", esp_err_to_name(err));
+    }
+
+    err = oled_display_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "OLED display unavailable: %s", esp_err_to_name(err));
+    }
+
+    err = environment_sensor_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Environment sensors unavailable: %s", esp_err_to_name(err));
     }
 
     if (xTaskCreatePinnedToCore(video_control_task, "video_ctrl", 4096, NULL, 4,

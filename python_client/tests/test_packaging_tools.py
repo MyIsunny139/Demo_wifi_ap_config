@@ -26,7 +26,7 @@ def test_stop_process_terminates_windows_process_tree():
 def test_stop_process_reports_failed_windows_tree_cleanup():
     process = Mock(pid=1234)
     process.poll.return_value = None
-    process.wait.side_effect = [subprocess.TimeoutExpired("video-ai", 5), None]
+    process.wait.side_effect = [subprocess.TimeoutExpired("Lab-Environment-Monitoring", 5), None]
     run_taskkill = Mock()
     run_taskkill.return_value.returncode = 1
 

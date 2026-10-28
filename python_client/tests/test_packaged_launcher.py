@@ -16,7 +16,7 @@ def test_bundle_root_uses_pyinstaller_meipass(monkeypatch, tmp_path):
 def test_application_root_uses_executable_directory_when_frozen(
     monkeypatch, tmp_path
 ):
-    executable = tmp_path / "video-ai.exe"
+    executable = tmp_path / "Lab-Environment-Monitoring.exe"
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(executable))
 
@@ -30,7 +30,7 @@ def test_build_dashboard_args_uses_delivery_defaults(monkeypatch, tmp_path):
     args = launcher.build_dashboard_args(["--no-browser", "--port", "8765"])
 
     assert args[:4] == ["--esp32-host", "192.168.1.3", "--device", "cpu"]
-    assert args[4:6] == ["--model", str(tmp_path / "bundle" / "smoking.onnx")]
+    assert args[4:6] == ["--model", str(tmp_path / "bundle" / "yolo11n.pt")]
     assert args[6:8] == ["--capture-dir", str(tmp_path / "app" / "captures")]
     assert args[8:10] == [
         "--diagnostic-log",
@@ -58,7 +58,7 @@ def test_initialize_logging_redirects_python_and_native_streams(monkeypatch, tmp
         sys.stderr = original_stderr
         stream.close()
 
-    log_path = tmp_path / "logs" / "video-ai.log"
+    log_path = tmp_path / "logs" / "Lab-Environment-Monitoring.log"
     assert "packaged stdout" in log_path.read_text(encoding="utf-8")
     assert "packaged stderr" in log_path.read_text(encoding="utf-8")
     assert duplicate_calls == [(stream_fd, 1), (stream_fd, 2)]
@@ -83,4 +83,4 @@ def test_launch_records_startup_failure(monkeypatch):
     result = launcher.launch([], runner=runner)
 
     assert result == 1
-    logger.exception.assert_called_once_with("video-ai stopped during startup")
+    logger.exception.assert_called_once_with("Lab-Environment-Monitoring stopped during startup")

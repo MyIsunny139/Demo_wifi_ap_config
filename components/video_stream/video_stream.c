@@ -2,9 +2,13 @@
 
 #include "camera_service.h"
 #include "cJSON.h"
+#include "esp_heap_caps.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_wifi.h"
+#include "oled_display.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "status_led.h"
@@ -17,20 +21,52 @@
 #define VIDEO_HTTP_CONTROL_PORT 32769
 #define VIDEO_FRAME_PERIOD_MS 250
 #define VIDEO_STATS_PERIOD_MS 60000
+#define VIDEO_SLOW_FRAME_MS 350
+#define VIDEO_SLOW_LOG_PERIOD_MS 5000
 #define VIDEO_WARMUP_FRAMES 8
 #define VIDEO_INVALID_FRAMES_BEFORE_RECOVERY 3
 #define VIDEO_MAX_COMMAND_SIZE 512
 #define VIDEO_TASK_STACK 4096
+#define VIDEO_SEND_TASK_STACK 4096
 #define VIDEO_HTTP_TASK_STACK 16384
+#define VIDEO_SEND_TIMEOUT_SECONDS 3
 
 static const char *TAG = "video_stream";
 static httpd_handle_t server;
 static SemaphoreHandle_t state_mutex;
 static SemaphoreHandle_t send_mutex;
+static QueueHandle_t frame_queue;
 static int client_fd = -1;
+static uint32_t connection_generation;
 static int last_command_id = -1;
 static int warmup_frames_remaining;
 static bool initialized;
+
+static void video_stream_send_environment_work(void *context);
+
+typedef struct {
+    httpd_handle_t server;
+    int fd;
+    uint32_t generation;
+    uint8_t *payload;
+    size_t length;
+    TickType_t captured_at;
+} video_frame_job_t;
+
+typedef struct {
+    httpd_handle_t server;
+    int fd;
+    uint32_t generation;
+    char *payload;
+} environment_message_t;
+
+static void free_frame_job(video_frame_job_t *job)
+{
+    if (job) {
+        heap_caps_free(job->payload);
+        free(job);
+    }
+}
 
 static bool find_jpeg_payload(const uint8_t *buffer, size_t length,
                               const uint8_t **payload_out, size_t *length_out)
@@ -86,25 +122,32 @@ static void maybe_log_stream_stats(uint32_t *valid_sent, uint32_t *dropped,
         return;
     }
 
-    const uint32_t total = *valid_sent + *dropped + *warmup + *timeouts + *send_fail;
-    if (total == 0 && *trimmed == 0) {
+    const uint32_t total = (valid_sent ? *valid_sent : 0) +
+                           (dropped ? *dropped : 0) +
+                           (warmup ? *warmup : 0) +
+                           (timeouts ? *timeouts : 0) +
+                           (send_fail ? *send_fail : 0);
+    if (total == 0 && (!trimmed || *trimmed == 0)) {
         *last_stats_at = now;
         return;
     }
 
     ESP_LOGI(TAG,
              "Video stats: valid=%lu dropped=%lu trimmed=%lu warmup=%lu timeouts=%lu send_fail=%lu total=%lu",
-             (unsigned long)*valid_sent, (unsigned long)*dropped,
-             (unsigned long)*trimmed, (unsigned long)*warmup,
-             (unsigned long)*timeouts, (unsigned long)*send_fail,
+             (unsigned long)(valid_sent ? *valid_sent : 0),
+             (unsigned long)(dropped ? *dropped : 0),
+             (unsigned long)(trimmed ? *trimmed : 0),
+             (unsigned long)(warmup ? *warmup : 0),
+             (unsigned long)(timeouts ? *timeouts : 0),
+             (unsigned long)(send_fail ? *send_fail : 0),
              (unsigned long)total);
 
-    *valid_sent = 0;
-    *dropped = 0;
-    *trimmed = 0;
-    *warmup = 0;
-    *timeouts = 0;
-    *send_fail = 0;
+    if (valid_sent) *valid_sent = 0;
+    if (dropped) *dropped = 0;
+    if (trimmed) *trimmed = 0;
+    if (warmup) *warmup = 0;
+    if (timeouts) *timeouts = 0;
+    if (send_fail) *send_fail = 0;
     *last_stats_at = now;
 }
 
@@ -113,6 +156,7 @@ static int replace_client(int fd)
     xSemaphoreTake(state_mutex, portMAX_DELAY);
     const int previous_fd = client_fd;
     client_fd = fd;
+    connection_generation++;
     warmup_frames_remaining = VIDEO_WARMUP_FRAMES;
     xSemaphoreGive(state_mutex);
     return previous_fd;
@@ -136,18 +180,147 @@ static bool clear_client_if(int fd)
     xSemaphoreTake(state_mutex, portMAX_DELAY);
     if (client_fd == fd) {
         client_fd = -1;
+        connection_generation++;
         cleared = true;
     }
     xSemaphoreGive(state_mutex);
     return cleared;
 }
 
-static void get_connection(httpd_handle_t *server_out, int *fd_out)
+static void get_connection(httpd_handle_t *server_out, int *fd_out,
+                           uint32_t *generation_out)
 {
     xSemaphoreTake(state_mutex, portMAX_DELAY);
     *server_out = server;
     *fd_out = client_fd;
+    if (generation_out) {
+        *generation_out = connection_generation;
+    }
     xSemaphoreGive(state_mutex);
+}
+
+esp_err_t video_stream_send_environment(bool dht_valid, float temperature_c,
+                                         float humidity_pct, int mq2_adc,
+                                         uint32_t sampled_at_ms)
+{
+    if (!initialized || !send_mutex) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        return ESP_ERR_NO_MEM;
+    }
+    cJSON_AddStringToObject(root, "type", "environment");
+    cJSON_AddBoolToObject(root, "dht_valid", dht_valid);
+    cJSON_AddNumberToObject(root, "temperature_c", temperature_c);
+    cJSON_AddNumberToObject(root, "humidity_pct", humidity_pct);
+    cJSON_AddNumberToObject(root, "mq2_adc", mq2_adc);
+    cJSON_AddNumberToObject(root, "sampled_at_ms", sampled_at_ms);
+    char *payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!payload) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    httpd_handle_t active_server;
+    int fd;
+    uint32_t generation;
+    get_connection(&active_server, &fd, &generation);
+    if (!active_server || fd < 0 ||
+        httpd_ws_get_fd_info(active_server, fd) != HTTPD_WS_CLIENT_WEBSOCKET) {
+        cJSON_free(payload);
+        return ESP_ERR_INVALID_STATE;
+    }
+    environment_message_t *message = calloc(1, sizeof(*message));
+    if (!message) {
+        cJSON_free(payload);
+        return ESP_ERR_NO_MEM;
+    }
+    message->server = active_server;
+    message->fd = fd;
+    message->generation = generation;
+    message->payload = payload;
+    const esp_err_t err = httpd_queue_work(active_server,
+                                            video_stream_send_environment_work,
+                                            message);
+    if (err != ESP_OK) {
+        cJSON_free(payload);
+        free(message);
+    }
+    return err;
+}
+
+static void video_stream_send_environment_work(void *context)
+{
+    environment_message_t *message = context;
+    httpd_handle_t active_server;
+    int fd;
+    uint32_t generation;
+    xSemaphoreTake(send_mutex, portMAX_DELAY);
+    get_connection(&active_server, &fd, &generation);
+    if (active_server == message->server && fd == message->fd &&
+        generation == message->generation &&
+        httpd_ws_get_fd_info(active_server, fd) == HTTPD_WS_CLIENT_WEBSOCKET) {
+        httpd_ws_frame_t frame = {
+            .type = HTTPD_WS_TYPE_TEXT,
+            .payload = (uint8_t *)message->payload,
+            .len = strlen(message->payload),
+        };
+        const esp_err_t err = httpd_ws_send_data(active_server, fd, &frame);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Environment telemetry send failed: %s",
+                     esp_err_to_name(err));
+        }
+    }
+    xSemaphoreGive(send_mutex);
+    cJSON_free(message->payload);
+    free(message);
+}
+
+static video_frame_job_t *copy_frame_job(httpd_handle_t active_server, int fd,
+                                         uint32_t generation,
+                                         const uint8_t *payload, size_t length)
+{
+    video_frame_job_t *job = calloc(1, sizeof(*job));
+    if (!job) {
+        return NULL;
+    }
+
+    job->payload = heap_caps_malloc(length, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!job->payload) {
+        job->payload = malloc(length);
+    }
+    if (!job->payload) {
+        free(job);
+        return NULL;
+    }
+
+    memcpy(job->payload, payload, length);
+    job->server = active_server;
+    job->fd = fd;
+    job->generation = generation;
+    job->length = length;
+    job->captured_at = xTaskGetTickCount();
+    return job;
+}
+
+/* Keep one pending copy only; the camera buffer is returned before networking. */
+static bool queue_latest_frame(video_frame_job_t *job)
+{
+    if (xQueueSend(frame_queue, &job, 0) == pdTRUE) {
+        return false;
+    }
+
+    video_frame_job_t *stale = NULL;
+    if (xQueueReceive(frame_queue, &stale, 0) == pdTRUE) {
+        free_frame_job(stale);
+    }
+    if (xQueueSend(frame_queue, &job, 0) == pdTRUE) {
+        return true;
+    }
+
+    free_frame_job(job);
+    return true;
 }
 
 static esp_err_t send_ack(httpd_req_t *req, int command_id, bool applied, const char *error)
@@ -250,6 +423,7 @@ static esp_err_t handle_risk_command(httpd_req_t *req, const uint8_t *payload, s
         esp_err_t led_result = status_led_set_risk(risk);
         if (led_result == ESP_OK) {
             last_command_id = id;
+            oled_display_show_risk(level->valuestring, people->valueint);
             result = send_ack(req, id, true, NULL);
             ESP_LOGI(TAG,
                      "Risk command %d applied: level=%s people=%d smoking=%d confidence=%.3f",
@@ -311,30 +485,119 @@ static esp_err_t video_ws_handler(httpd_req_t *req)
     return err;
 }
 
-static void capture_task(void *context)
+static void send_task(void *context)
 {
     uint32_t valid_sent = 0;
+    uint32_t send_fail = 0;
+    TickType_t last_stats_at = 0;
+    TickType_t last_slow_log_at = 0;
+    uint32_t blocked_generation = 0;
+    bool send_blocked = false;
+
+    while (true) {
+        video_frame_job_t *job = NULL;
+        if (xQueueReceive(frame_queue, &job, portMAX_DELAY) != pdTRUE || !job) {
+            continue;
+        }
+
+        httpd_handle_t active_server;
+        int fd;
+        uint32_t generation;
+        get_connection(&active_server, &fd, &generation);
+        if (!active_server || fd != job->fd || generation != job->generation ||
+            active_server != job->server ||
+            httpd_ws_get_fd_info(active_server, fd) != HTTPD_WS_CLIENT_WEBSOCKET) {
+            free_frame_job(job);
+            continue;
+        }
+
+        if (send_blocked && generation == blocked_generation) {
+            free_frame_job(job);
+            continue;
+        }
+        if (send_blocked && generation != blocked_generation) {
+            send_blocked = false;
+            blocked_generation = 0;
+            ESP_LOGI(TAG, "Video client changed; resuming frame sends");
+        }
+
+        xSemaphoreTake(send_mutex, portMAX_DELAY);
+        get_connection(&active_server, &fd, &generation);
+        if (!active_server || fd != job->fd || generation != job->generation ||
+            active_server != job->server ||
+            httpd_ws_get_fd_info(active_server, fd) != HTTPD_WS_CLIENT_WEBSOCKET) {
+            xSemaphoreGive(send_mutex);
+            free_frame_job(job);
+            continue;
+        }
+
+        const TickType_t send_started = xTaskGetTickCount();
+        httpd_ws_frame_t frame = {
+            .type = HTTPD_WS_TYPE_BINARY,
+            .payload = job->payload,
+            .len = job->length,
+        };
+        esp_err_t err = httpd_ws_send_data(active_server, fd, &frame);
+        const uint32_t send_ms = pdTICKS_TO_MS(
+            xTaskGetTickCount() - send_started);
+        const TickType_t completed = xTaskGetTickCount();
+        const uint32_t total_ms = pdTICKS_TO_MS(completed - job->captured_at);
+        if (total_ms >= VIDEO_SLOW_FRAME_MS &&
+            (last_slow_log_at == 0 ||
+             completed - last_slow_log_at >= pdMS_TO_TICKS(VIDEO_SLOW_LOG_PERIOD_MS))) {
+            wifi_ap_record_t ap_info = {0};
+            const int rssi = esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK
+                                 ? ap_info.rssi
+                                 : 0;
+            ESP_LOGW(TAG,
+                     "Slow frame: total=%lu queued=%lu ms send=%lu ms bytes=%u rssi=%d dBm",
+                     (unsigned long)total_ms,
+                     (unsigned long)pdTICKS_TO_MS(send_started - job->captured_at),
+                     (unsigned long)send_ms, (unsigned)job->length, rssi);
+            last_slow_log_at = completed;
+        }
+        if (err != ESP_OK) {
+            send_fail++;
+            blocked_generation = generation;
+            send_blocked = true;
+            ESP_LOGW(TAG,
+                     "Video send timed out: %s; dropping frames until the client reconnects",
+                     esp_err_to_name(err));
+        } else {
+            valid_sent++;
+        }
+        free_frame_job(job);
+        xSemaphoreGive(send_mutex);
+        maybe_log_stream_stats(&valid_sent, NULL, NULL, NULL, NULL, &send_fail,
+                               &last_stats_at);
+    }
+}
+
+static void capture_task(void *context)
+{
     uint32_t dropped = 0;
     uint32_t trimmed = 0;
     uint32_t warmup = 0;
     uint32_t timeouts = 0;
-    uint32_t send_fail = 0;
     uint32_t consecutive_invalid = 0;
     TickType_t last_stats_at = 0;
 
     while (true) {
         const TickType_t started = xTaskGetTickCount();
-        xSemaphoreTake(send_mutex, portMAX_DELAY);
-
         httpd_handle_t active_server;
         int fd;
-        get_connection(&active_server, &fd);
+        uint32_t generation;
+        get_connection(&active_server, &fd, &generation);
         if (active_server && fd >= 0 &&
             httpd_ws_get_fd_info(active_server, fd) == HTTPD_WS_CLIENT_WEBSOCKET) {
+            const TickType_t capture_started = xTaskGetTickCount();
             camera_fb_t *frame_buffer = camera_service_get_frame();
+            const uint32_t capture_ms = pdTICKS_TO_MS(
+                xTaskGetTickCount() - capture_started);
             if (!frame_buffer) {
                 timeouts++;
-                ESP_LOGW(TAG, "Camera frame unavailable");
+                ESP_LOGW(TAG, "Camera frame unavailable after %lu ms",
+                         (unsigned long)capture_ms);
                 consecutive_invalid = 0;
                 if (camera_service_recover() != ESP_OK) {
                     ESP_LOGE(TAG, "Camera recovery failed");
@@ -368,9 +631,8 @@ static void capture_task(void *context)
                             ESP_LOGE(TAG, "Camera recovery failed");
                         }
                     }
-                    xSemaphoreGive(send_mutex);
-                    maybe_log_stream_stats(&valid_sent, &dropped, &trimmed, &warmup,
-                                           &timeouts, &send_fail, &last_stats_at);
+                    maybe_log_stream_stats(NULL, &dropped, &trimmed, &warmup,
+                                           &timeouts, NULL, &last_stats_at);
                     wait_for_next_frame_period(started);
                     continue;
                 }
@@ -388,27 +650,22 @@ static void capture_task(void *context)
                 if (consume_warmup_frame()) {
                     warmup++;
                     camera_service_return_frame(frame_buffer);
-                    xSemaphoreGive(send_mutex);
-                    maybe_log_stream_stats(&valid_sent, &dropped, &trimmed, &warmup,
-                                           &timeouts, &send_fail, &last_stats_at);
-                    wait_for_next_frame_period(started);
-                    continue;
-                }
-                httpd_ws_frame_t frame = {
-                    .type = HTTPD_WS_TYPE_BINARY,
-                    .payload = (uint8_t *)jpeg_payload,
-                    .len = jpeg_length,
-                };
-                esp_err_t err = httpd_ws_send_data(active_server, fd, &frame);
-                camera_service_return_frame(frame_buffer);
-                if (err != ESP_OK) {
-                    send_fail++;
-                    ESP_LOGW(TAG, "Video send failed: %s", esp_err_to_name(err));
-                    if (clear_client_if(fd)) {
-                        status_led_clear();
-                    }
                 } else {
-                    valid_sent++;
+                    video_frame_job_t *job = copy_frame_job(active_server, fd, generation,
+                                                            jpeg_payload, jpeg_length);
+                    camera_service_return_frame(frame_buffer);
+                    if (!job) {
+                        dropped++;
+                        ESP_LOGW(TAG, "Dropping JPEG frame: unable to allocate %u bytes",
+                                 (unsigned)jpeg_length);
+                    } else if (queue_latest_frame(job)) {
+                        static uint32_t replaced_frames;
+                        replaced_frames++;
+                        if (replaced_frames == 1 || replaced_frames % 50 == 0) {
+                            ESP_LOGW(TAG, "Dropped stale queued frame, replaced=%lu",
+                                     (unsigned long)replaced_frames);
+                        }
+                    }
                 }
             }
         } else if (fd >= 0) {
@@ -417,9 +674,8 @@ static void capture_task(void *context)
             }
         }
 
-        xSemaphoreGive(send_mutex);
-        maybe_log_stream_stats(&valid_sent, &dropped, &trimmed, &warmup,
-                               &timeouts, &send_fail, &last_stats_at);
+        maybe_log_stream_stats(NULL, &dropped, &trimmed, &warmup,
+                               &timeouts, NULL, &last_stats_at);
         wait_for_next_frame_period(started);
     }
 }
@@ -443,8 +699,30 @@ esp_err_t video_stream_init(void)
         state_mutex = NULL;
         return ESP_ERR_NO_MEM;
     }
+    frame_queue = xQueueCreate(1, sizeof(video_frame_job_t *));
+    if (!frame_queue) {
+        vSemaphoreDelete(send_mutex);
+        vSemaphoreDelete(state_mutex);
+        send_mutex = NULL;
+        state_mutex = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+    TaskHandle_t capture_handle = NULL;
     if (xTaskCreatePinnedToCore(capture_task, "video_capture", VIDEO_TASK_STACK, NULL, 4,
+                                &capture_handle, 1) != pdPASS) {
+        vQueueDelete(frame_queue);
+        frame_queue = NULL;
+        vSemaphoreDelete(send_mutex);
+        vSemaphoreDelete(state_mutex);
+        send_mutex = NULL;
+        state_mutex = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+    if (xTaskCreatePinnedToCore(send_task, "video_send", VIDEO_SEND_TASK_STACK, NULL, 4,
                                 NULL, 1) != pdPASS) {
+        vTaskDelete(capture_handle);
+        vQueueDelete(frame_queue);
+        frame_queue = NULL;
         vSemaphoreDelete(send_mutex);
         vSemaphoreDelete(state_mutex);
         send_mutex = NULL;
@@ -465,7 +743,7 @@ esp_err_t video_stream_start(void)
     xSemaphoreTake(send_mutex, portMAX_DELAY);
     httpd_handle_t active_server;
     int fd;
-    get_connection(&active_server, &fd);
+    get_connection(&active_server, &fd, NULL);
     if (active_server) {
         xSemaphoreGive(send_mutex);
         return ESP_OK;
@@ -477,7 +755,7 @@ esp_err_t video_stream_start(void)
     config.core_id = 1;
     config.stack_size = VIDEO_HTTP_TASK_STACK;
     config.max_open_sockets = 4;
-    config.send_wait_timeout = 2;
+    config.send_wait_timeout = VIDEO_SEND_TIMEOUT_SECONDS;
     config.recv_wait_timeout = 2;
     config.lru_purge_enable = true;
 
@@ -516,6 +794,7 @@ esp_err_t video_stream_stop(void)
     httpd_handle_t active_server = server;
     server = NULL;
     client_fd = -1;
+    connection_generation++;
     xSemaphoreGive(state_mutex);
 
     status_led_clear();
@@ -531,6 +810,6 @@ bool video_stream_is_running(void)
     }
     httpd_handle_t active_server;
     int fd;
-    get_connection(&active_server, &fd);
+    get_connection(&active_server, &fd, NULL);
     return active_server != NULL;
 }
